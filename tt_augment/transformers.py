@@ -1,7 +1,7 @@
 import numpy as np
 from collections import deque
 
-from tta_augment import custom_augmenters
+from tt_augment import custom_augmenters
 
 
 class TransformWindow:
