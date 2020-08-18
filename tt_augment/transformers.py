@@ -5,8 +5,8 @@ from tt_augment import custom_augmenters
 
 
 class TransformWindow:
-    def __init__(self, stride_size, org_size):
-        self.stride_size = stride_size
+    def __init__(self, window_size, org_size):
+        self.window_size = window_size
         self.org_size = org_size
         self.window_collection = self.windows()
 
@@ -27,18 +27,18 @@ class TransformWindow:
         :return:
         """
         if (
-            self.stride_size[0] > self.org_size[0]
-            or self.stride_size[1] > self.org_size[1]
+            self.window_size[0] > self.org_size[0]
+            or self.window_size[1] > self.org_size[1]
         ):
             raise ValueError(
-                "Size to Split Can't Be Greater than Image, Given {},"
+                "Window Size Can't Be Greater than Image, Given {},"
                 " Expected <= {}".format(
-                    self.stride_size, (self.org_size[0], self.org_size[1])
+                    self.window_size, (self.org_size[0], self.org_size[1])
                 )
             )
         cropped_windows = list()
 
-        split_col, split_row = (self.stride_size[0], self.stride_size[1])
+        split_col, split_row = (self.window_size[0], self.window_size[1])
 
         img_col = self.org_size[0]
         img_row = self.org_size[1]
@@ -64,13 +64,13 @@ class TransformWindow:
         return cropped_windows
 
     @classmethod
-    def get_window(cls, stride_size: tuple, org_size: tuple):
+    def get_window(cls, window_size: tuple, org_size: tuple):
         """
-        :param stride_size:
+        :param window_size:
         :param org_size:
         :return:
         """
-        return TransformWindow(stride_size, org_size)
+        return TransformWindow(window_size, org_size)
 
 
 class Transform:
@@ -85,11 +85,11 @@ class Transform:
     def transform(self, image: np.ndarray):
         return self.transformer(images=image)
 
-    def reverse_inferred_transform(self, image: np.ndarray):
+    def reverse_inferred_transform(self, inferred_image: np.ndarray):
         if hasattr(self, "do_reversal"):
-            return self.transformer(images=image, do_reversal=True)
+            return self.transformer(images=inferred_image, do_reversal=True)
         else:
-            return image
+            return inferred_image
 
     def get_window_data(self, image):
         return image[
@@ -117,18 +117,18 @@ class Transform:
         inferred_image = cropped_image + inferred_image
 
         if np.any(cropped_image):
-            intersecting_prediction_elements = np.zeros(cropped_image.shape)
-            intersecting_prediction_elements[cropped_image > 0] = 1
+            intersecting_inference_elements = np.zeros(cropped_image.shape)
+            intersecting_inference_elements[cropped_image > 0] = 1
 
-            non_intersecting_prediction_elements = 1 - intersecting_prediction_elements
+            non_intersecting_inference_elements = 1 - intersecting_inference_elements
 
-            intersected_prediction = inferred_image * intersecting_prediction_elements
-            aggregate_prediction = intersected_prediction / 2
+            intersected_inference = inferred_image * intersecting_inference_elements
+            aggregate_inference = intersected_inference / 2
 
-            non_intersected_prediction = np.multiply(
-                non_intersecting_prediction_elements, inferred_image
+            non_intersected_inference = np.multiply(
+                non_intersecting_inference_elements, inferred_image
             )
-            inferred_image = aggregate_prediction + non_intersected_prediction
+            inferred_image = aggregate_inference + non_intersected_inference
         tta_image[:, part_1_x:part_1_y, part_2_x:part_2_y, :] = inferred_image
         return tta_image
 
@@ -162,6 +162,6 @@ class TTA:
         for transformation in self.collection:
             yield transformation, transformation.get_window_data(image)
 
-    def collate_inference(self, transformation: Transform, image: np.ndarray):
-        self.tta_image = transformation.add_window_data(image, self.tta_image)
+    def collate_inference(self, transformation: Transform, inferred_image: np.ndarray):
+        self.tta_image = transformation.add_window_data(inferred_image, self.tta_image)
         # return transformation.reverse_inferred_transform(image)
