@@ -1,5 +1,4 @@
 import numpy as np
-from collections import deque
 
 from tt_augment import custom_augmenters
 
@@ -86,12 +85,12 @@ class Transform:
         return self.transformer(images=image)
 
     def reverse_inferred_transform(self, inferred_image: np.ndarray):
-        if hasattr(self, "do_reversal"):
+        if hasattr(self.transformer, "reversal"):
             return self.transformer(images=inferred_image, do_reversal=True)
         else:
             return inferred_image
 
-    def get_window_data(self, image):
+    def data(self, image):
         return image[
             :,
             self.window[0][0] : self.window[0][1],
@@ -99,20 +98,55 @@ class Transform:
             :,
         ]
 
-    def add_window_data(self, inferred_image: np.ndarray, tta_image: np.ndarray):
+
+class TTA:
+    def __init__(self, transformers: dict):
+        self.transformers = transformers
+        self.collection = self.make_transformer()
+
+        self._tt_image = None
+
+    @property
+    def tt_image(self):
+        return self._tt_image
+
+    def make_transformer(self):
+        collection = list()
+        for individual_transformer, transformer_param in self.transformers.items():
+            transformation = getattr(custom_augmenters, individual_transformer)(
+                **transformer_param
+            )
+            window = TransformWindow.get_window(
+                window_size=transformation.dimension,
+                org_size=transformation.network_input_dimension,
+            )
+
+            for win_number, win in window:
+                collection.append(Transform(transformer=transformation, window=win))
+        return collection
+
+    def tta_gen(self, image: np.ndarray):
+        self._tt_image = np.zeros(image.shape)
+
+        for transformation in self.collection:
+            yield transformation, transformation.transform(
+                transformation.data(image=image)
+            )
+
+    def aggregate(self, inferred_image: np.ndarray, window: tuple):
         """
 
+        :param window:
         :param inferred_image:
-        :param tta_image:
         :return:
         """
 
-        part_1_x = self.window[0][0]
-        part_1_y = self.window[0][1]
-        part_2_x = self.window[1][0]
-        part_2_y = self.window[1][1]
+        part_1_x = window[0][0]
+        part_1_y = window[0][1]
+        part_2_x = window[1][0]
+        part_2_y = window[1][1]
 
-        cropped_image = tta_image[:, part_1_x:part_1_y, part_2_x:part_2_y, :]
+        cropped_image = self._tt_image[:, part_1_x:part_1_y, part_2_x:part_2_y, :]
 
         inferred_image = cropped_image + inferred_image
 
@@ -129,39 +163,10 @@ class Transform:
                 non_intersecting_inference_elements, inferred_image
             )
             inferred_image = aggregate_inference + non_intersected_inference
-        tta_image[:, part_1_x:part_1_y, part_2_x:part_2_y, :] = inferred_image
-        return tta_image
-
-
-class TTA:
-    def __init__(self, network_input_dimension: tuple, transformers: dict):
-        self.network_input_dimension = network_input_dimension
-        self.collection = self.make_transformer(transformers)
-
-        self.collate_transform = deque()
-
-        self.tta_image = None
-
-    def make_transformer(self, transformers):
-        collection = list()
-        for individual_transformer, transformer_param in transformers.items():
-            transformation = getattr(custom_augmenters, individual_transformer)(
-                **transformer_param
-            )
-            window = TransformWindow.get_window(
-                transformation.dimension, self.network_input_dimension
-            )
-
-            for win_number, win in window:
-                collection.append(Transform(transformer=transformation, window=win))
-        return collection
-
-    def tta_gen(self, image: np.ndarray):
-        self.tta_image = np.zeros(image.shape)
-
-        for transformation in self.collection:
-            yield transformation, transformation.get_window_data(image)
+        self._tt_image[:, part_1_x:part_1_y, part_2_x:part_2_y, :] = inferred_image
 
     def collate_inference(self, transformation: Transform, inferred_image: np.ndarray):
-        self.tta_image = transformation.add_window_data(inferred_image, self.tta_image)
-        # return transformation.reverse_inferred_transform(image)
+        inferred_image = transformation.reverse_inferred_transform(
+            inferred_image=inferred_image
+        )
+        self.aggregate(inferred_image=inferred_image, window=transformation.window)
