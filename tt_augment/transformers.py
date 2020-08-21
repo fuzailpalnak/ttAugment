@@ -123,7 +123,7 @@ class TTA:
                 **transformer_param
             )
             window = TransformWindow.get_window(
-                window_size=transformation.dimension, org_size=self.image_dimension,
+                window_size=transformation.transform_dimension, org_size=self.image_dimension,
             )
 
             for win_number, win in window:

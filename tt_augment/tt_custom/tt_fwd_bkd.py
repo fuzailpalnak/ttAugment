@@ -6,7 +6,7 @@ from tt_augment.tt_custom.custom import (
     FlipLR,
     FlipUD,
     RotateFWD,
-    RotateBKD,
+    RotateBKD, ScaleFWD, ScaleBKD,
 )
 
 
@@ -21,7 +21,7 @@ class TTFwdBkd(meta.Augmenter):
             or network_dimension[1] < transform_dimension[1]
         ):
             raise ValueError("Network Dimension Can't Be Less Than Transform Dimension")
-        self.dimension = transform_dimension
+        self.transform_dimension = transform_dimension
         self.network_dimension = network_dimension
 
     @property
@@ -41,7 +41,7 @@ class TTFwdBkd(meta.Augmenter):
             return self.fwd(images)
 
     def get_parameters(self):
-        return [self.network_dimension, self.dimension]
+        return [self.network_dimension, self.transform_dimension]
 
     def fwd(self, images):
         raise NotImplementedError
@@ -63,24 +63,23 @@ class Mirror(TTFwdBkd):
         return self.mirror_bkd(images=images)
 
     def get_parameters(self):
-        return [self.network_dimension, self.dimension]
+        return [self.network_dimension, self.transform_dimension]
 
 
-class Scale(TTFwdBkd):
+class CropScale(TTFwdBkd):
     def __init__(self, network_dimension: tuple, transform_dimension: tuple):
         super().__init__(network_dimension, transform_dimension)
-
-    def __call__(self, images, do_reversal=False):
-        return self.augment(images=images)
+        self.scale_fwd = ScaleFWD(network_dimension, transform_dimension)
+        self.scale_bkd = ScaleBKD(network_dimension, transform_dimension)
 
     def get_parameters(self):
-        return [self.network_dimension, self.dimension]
+        return [self.network_dimension, self.transform_dimension]
 
     def fwd(self, images):
-        pass
+        return self.scale_fwd(images=images)
 
     def bkd(self, images):
-        pass
+        return self.scale_bkd(images=images)
 
 
 class Crop(TTFwdBkd):
@@ -88,7 +87,7 @@ class Crop(TTFwdBkd):
         super().__init__(network_dimension, transform_dimension)
 
     def get_parameters(self):
-        return [self.network_dimension, self.dimension]
+        return [self.network_dimension, self.transform_dimension]
 
     def fwd(self, images):
         pass
@@ -104,7 +103,7 @@ class Rot(TTFwdBkd):
         self.rotate_bkd = RotateBKD(angle, transform_dimension)
 
     def get_parameters(self):
-        return [self.network_dimension, self.dimension]
+        return [self.network_dimension, self.transform_dimension]
 
     def fwd(self, images):
         return self.rotate_fwd(images=images)
