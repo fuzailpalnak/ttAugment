@@ -1,6 +1,6 @@
 import numpy as np
 
-from tt_augment import custom_augmenters
+from tt_augment.tt_custom import tt_fwd_bkd
 
 
 class TransformWindow:
@@ -77,18 +77,22 @@ class Transform:
         self.transformer = transformer
         self._window = window
 
+        self._has_reverse = hasattr(self.transformer, "reversal")
+
     @property
     def window(self):
         return self._window
 
-    def transform(self, image: np.ndarray):
-        return self.transformer(images=image)
-
-    def reverse_inferred_transform(self, inferred_image: np.ndarray):
-        if hasattr(self.transformer, "reversal"):
-            return self.transformer(images=inferred_image, do_reversal=True)
+    def transform(self, image: np.ndarray, path: str):
+        if path == "fwd":
+            return self.transformer(images=image)
+        elif path == "bkd":
+            if self._has_reverse:
+                return self.transformer(images=image, do_reversal=True)
+            else:
+                return image
         else:
-            return inferred_image
+            raise NotImplementedError
 
     def data(self, image):
         return image[
@@ -100,8 +104,10 @@ class Transform:
 
 
 class TTA:
-    def __init__(self, transformers: dict):
+    def __init__(self, image_dimension: tuple, transformers: dict):
+        self.image_dimension = image_dimension
         self.transformers = transformers
+
         self.collection = self.make_transformer()
 
         self._tt_image = None
@@ -113,12 +119,11 @@ class TTA:
     def make_transformer(self):
         collection = list()
         for individual_transformer, transformer_param in self.transformers.items():
-            transformation = getattr(custom_augmenters, individual_transformer)(
+            transformation = getattr(tt_fwd_bkd, individual_transformer)(
                 **transformer_param
             )
             window = TransformWindow.get_window(
-                window_size=transformation.dimension,
-                org_size=transformation.network_input_dimension,
+                window_size=transformation.dimension, org_size=self.image_dimension,
             )
 
             for win_number, win in window:
@@ -130,7 +135,7 @@ class TTA:
 
         for transformation in self.collection:
             yield transformation, transformation.transform(
-                transformation.data(image=image)
+                transformation.data(image=image), path="fwd"
             )
 
     def aggregate(self, inferred_image: np.ndarray, window: tuple):
@@ -166,7 +171,5 @@ class TTA:
         self._tt_image[:, part_1_x:part_1_y, part_2_x:part_2_y, :] = inferred_image
 
     def collate_inference(self, transformation: Transform, inferred_image: np.ndarray):
-        inferred_image = transformation.reverse_inferred_transform(
-            inferred_image=inferred_image
-        )
+        inferred_image = transformation.transform(image=inferred_image, path="bkd")
         self.aggregate(inferred_image=inferred_image, window=transformation.window)
