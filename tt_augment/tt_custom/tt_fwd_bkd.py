@@ -57,10 +57,10 @@ class Mirror(TTFwdBkd):
         self.mirror_bkd = MirrorBKD(network_dimension, transform_dimension)
 
     def fwd(self, images):
-        return self.mirror_fwd(images)
+        return self.mirror_fwd(images=images)
 
     def bkd(self, images):
-        return self.mirror_bkd(images)
+        return self.mirror_bkd(images=images)
 
     def get_parameters(self):
         return [self.network_dimension, self.dimension]
@@ -71,7 +71,6 @@ class Scale(TTFwdBkd):
         super().__init__(network_dimension, transform_dimension)
 
     def __call__(self, images, do_reversal=False):
-        self.do_reversal = do_reversal
         return self.augment(images=images)
 
     def get_parameters(self):
@@ -108,10 +107,10 @@ class Rot(TTFwdBkd):
         return [self.network_dimension, self.dimension]
 
     def fwd(self, images):
-        return self.rotate_fwd(images)
+        return self.rotate_fwd(images=images)
 
     def bkd(self, images):
-        return self.rotate_bkd(images)
+        return self.rotate_bkd(images=images)
 
 
 class FlipHorizontal(TTFwdBkd):
@@ -121,10 +120,10 @@ class FlipHorizontal(TTFwdBkd):
         self.flip = FlipLR(transform_dimension)
 
     def fwd(self, images):
-        return self.flip(images)
+        return self.flip(images=images)
 
     def bkd(self, images):
-        return self.flip(images)
+        return self.flip(images=images)
 
 
 class FlipVertical(TTFwdBkd):
@@ -134,7 +133,7 @@ class FlipVertical(TTFwdBkd):
         self.flip = FlipUD(transform_dimension)
 
     def fwd(self, images):
-        return self.flip(images)
+        return self.flip(images=images)
 
     def bkd(self, images):
-        return self.flip(images)
+        return self.flip(images=images)

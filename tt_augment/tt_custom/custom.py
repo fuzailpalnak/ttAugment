@@ -25,11 +25,6 @@ class TTCustom(meta.Augmenter):
     def _augment_batch_(self, batch, random_state, parents, hooks):
         pass
 
-    def _augment_images_by_samples(
-        self, images, samples, image_shapes=None, return_matrices=False
-    ):
-        pass
-
 
 class MirrorFWD(TTCustom):
     def __init__(self, network_dimension: tuple, transform_dimension: tuple):
@@ -39,14 +34,8 @@ class MirrorFWD(TTCustom):
         return [self.network_dimension, self.dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
-        batch.images = self._augment_images_by_samples(
-            images=batch.images, samples=None
-        )
-        return batch
 
-    def _augment_images_by_samples(
-        self, images, samples, image_shapes=None, return_matrices=False
-    ):
+        images = batch.images
         nb_images = len(images)
         result = []
         for i in sm.xrange(nb_images):
@@ -64,8 +53,8 @@ class MirrorFWD(TTCustom):
                 borderType=cv2.BORDER_REFLECT_101,
             )
             result.append(img)
-        result = np.array(result, images.dtype)
-        return result
+        batch.images = np.array(result, images.dtype)
+        return batch
 
 
 class MirrorBKD(TTCustom):
@@ -76,14 +65,7 @@ class MirrorBKD(TTCustom):
         return [self.network_dimension, self.dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
-        batch.images = self._augment_images_by_samples(
-            images=batch.images, samples=None
-        )
-        return batch
-
-    def _augment_images_by_samples(
-        self, images, samples, image_shapes=None, return_matrices=False
-    ):
+        images = batch.images
         nb_images = len(images)
         result = []
 
@@ -103,8 +85,8 @@ class MirrorBKD(TTCustom):
             x2 = x1 + crop_width
 
             result.append(img[y1:y2, x1:x2, :])
-        result = np.array(result, images.dtype)
-        return result
+        batch.images = np.array(result, images.dtype)
+        return batch
 
 
 class FlipLR(TTCustom):
@@ -119,11 +101,6 @@ class FlipLR(TTCustom):
             batch.images[i] = fliplr(batch.images[i])
         return batch
 
-    def _augment_images_by_samples(
-        self, images, samples, image_shapes=None, return_matrices=False
-    ):
-        pass
-
 
 class FlipUD(TTCustom):
     def __init__(self, transform_dimension: tuple):
@@ -136,11 +113,6 @@ class FlipUD(TTCustom):
         for i, images in enumerate(batch.images):
             batch.images[i] = batch.images[i][::-1, ...]
         return batch
-
-    def _augment_images_by_samples(
-        self, images, samples, image_shapes=None, return_matrices=False
-    ):
-        pass
 
 
 class RotateFWD(TTCustom):
