@@ -1,13 +1,9 @@
-from imgaug.augmenters import meta
+import cv2
+import numpy as np
+from imgaug import imresize_single_image
 
-from tt_augment.tt_custom.custom import (
-    MirrorFWD,
-    MirrorBKD,
-    FlipLR,
-    FlipUD,
-    RotateFWD,
-    RotateBKD, ScaleFWD, ScaleBKD,
-)
+from imgaug.augmenters import Rotate, sm, meta
+from imgaug.augmenters.flip import fliplr
 
 
 class TTFwdBkd(meta.Augmenter):
@@ -24,115 +20,198 @@ class TTFwdBkd(meta.Augmenter):
         self.transform_dimension = transform_dimension
         self.network_dimension = network_dimension
 
-    @property
-    def reversal(self):
-        return True
-
-    def __call__(self, images, do_reversal=False):
-        """
-
-        :param images: batch images of dimension [Batch x Width x Height x Band]
-        :param do_reversal: to reverse the augmentation
-        :return:
-        """
-        if do_reversal:
-            return self.bkd(images)
-        else:
-            return self.fwd(images)
-
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
 
-    def fwd(self, images):
-        raise NotImplementedError
-
-    def bkd(self, images):
-        raise NotImplementedError
-
-
-class Mirror(TTFwdBkd):
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
-        self.mirror_fwd = MirrorFWD(network_dimension, transform_dimension)
-        self.mirror_bkd = MirrorBKD(network_dimension, transform_dimension)
-
-    def fwd(self, images):
-        return self.mirror_fwd(images=images)
-
-    def bkd(self, images):
-        return self.mirror_bkd(images=images)
-
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
-
-
-class CropScale(TTFwdBkd):
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
-        self.scale_fwd = ScaleFWD(network_dimension, transform_dimension)
-        self.scale_bkd = ScaleBKD(network_dimension, transform_dimension)
-
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
-
-    def fwd(self, images):
-        return self.scale_fwd(images=images)
-
-    def bkd(self, images):
-        return self.scale_bkd(images=images)
-
-
-class Crop(TTFwdBkd):
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
-
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
-
-    def fwd(self, images):
-        pass
-
-    def bkd(self, images):
+    def _augment_batch_(self, batch, random_state, parents, hooks):
         pass
 
 
-class Rot(TTFwdBkd):
+class MirrorFWD(TTFwdBkd):
+    """
+    Mirror the pixel to get to network_dimension
+    """
+
+    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+        super().__init__(network_dimension, transform_dimension)
+
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
+
+    def _augment_batch_(self, batch, random_state, parents, hooks):
+
+        images = batch.images
+        nb_images = len(images)
+        result = []
+        for i in sm.xrange(nb_images):
+            img = images[i]
+
+            limit_w = (self.network_dimension[0] - self.transform_dimension[0]) // 2
+
+            limit_h = (self.network_dimension[1] - self.transform_dimension[1]) // 2
+            img = cv2.copyMakeBorder(
+                img,
+                limit_h,
+                limit_h,
+                limit_w,
+                limit_w,
+                borderType=cv2.BORDER_REFLECT_101,
+            )
+            result.append(img)
+        batch.images = np.array(result, images.dtype)
+        return batch
+
+
+class MirrorBKD(TTFwdBkd):
+    """
+    Remove the added pixel, Reverse of MirrorFWD
+    """
+
+    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+        super().__init__(network_dimension, transform_dimension)
+
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
+
+    def _augment_batch_(self, batch, random_state, parents, hooks):
+        images = batch.images
+        nb_images = len(images)
+        result = []
+
+        image_width, image_height = self.network_dimension[0], self.network_dimension[1]
+
+        crop_width, crop_height = (
+            self.transform_dimension[0],
+            self.transform_dimension[1],
+        )
+
+        for i in sm.xrange(nb_images):
+            img = images[i]
+
+            dy = (image_height - crop_height) // 2
+            dx = (image_width - crop_width) // 2
+
+            y1 = dy
+            y2 = y1 + crop_height
+            x1 = dx
+            x2 = x1 + crop_width
+
+            result.append(img[y1:y2, x1:x2, :])
+        batch.images = np.array(result, images.dtype)
+        return batch
+
+
+class FlipLR(TTFwdBkd):
+    """
+    FLip an image
+    """
+
+    def __init__(self, transform_dimension: tuple):
+        super().__init__(transform_dimension, transform_dimension)
+
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
+
+    def _augment_batch_(self, batch, random_state, parents, hooks):
+        for i, images in enumerate(batch.images):
+            batch.images[i] = fliplr(batch.images[i])
+        return batch
+
+
+class FlipUD(TTFwdBkd):
+    """
+    Flip an image
+    """
+
+    def __init__(self, transform_dimension: tuple):
+        super().__init__(transform_dimension, transform_dimension)
+
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
+
+    def _augment_batch_(self, batch, random_state, parents, hooks):
+        for i, images in enumerate(batch.images):
+            batch.images[i] = batch.images[i][::-1, ...]
+        return batch
+
+
+class RotateFWD(TTFwdBkd):
+    """
+    Rotate an image with angle
+    """
+
     def __init__(self, angle: int, transform_dimension: tuple):
         super().__init__(transform_dimension, transform_dimension)
-        self.rotate_fwd = RotateFWD(angle, transform_dimension)
-        self.rotate_bkd = RotateBKD(angle, transform_dimension)
+
+        self.transform = Rotate(rotate=angle)
+
+    def __call__(self, images):
+        return self.transform.augment(images=images)
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
 
-    def fwd(self, images):
-        return self.rotate_fwd(images=images)
 
-    def bkd(self, images):
-        return self.rotate_bkd(images=images)
+class RotateBKD(TTFwdBkd):
+    """
+    Rotate an image with -angle, Reverse the Rotate transformation
+    """
 
-
-class FlipHorizontal(TTFwdBkd):
-    def __init__(self, transform_dimension: tuple):
+    def __init__(self, angle: int, transform_dimension: tuple):
         super().__init__(transform_dimension, transform_dimension)
 
-        self.flip = FlipLR(transform_dimension)
+        self.transform = Rotate(rotate=-angle)
 
-    def fwd(self, images):
-        return self.flip(images=images)
+    def __call__(self, images):
+        return self.transform.augment(images=images)
 
-    def bkd(self, images):
-        return self.flip(images=images)
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
 
 
-class FlipVertical(TTFwdBkd):
-    def __init__(self, transform_dimension: tuple):
-        super().__init__(transform_dimension, transform_dimension)
+class ScaleFWD(TTFwdBkd):
+    """
+    Scale an image from transform_dimension to network_dimension
+    """
 
-        self.flip = FlipUD(transform_dimension)
+    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+        super().__init__(network_dimension, transform_dimension)
 
-    def fwd(self, images):
-        return self.flip(images=images)
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
 
-    def bkd(self, images):
-        return self.flip(images=images)
+    def _augment_batch_(self, batch, random_state, parents, hooks):
+        result = list()
+        for i, images in enumerate(batch.images):
+            image_rs = imresize_single_image(
+                images,
+                (self.network_dimension[1], self.network_dimension[0]),
+                interpolation="nearest",
+            )
+            result.append(image_rs)
+        batch.images = np.array(result, batch.images.dtype)
+        return batch
+
+
+class ScaleBKD(TTFwdBkd):
+    """
+    Scale an image from network_dimension to transform_dimension
+    """
+
+    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+        super().__init__(network_dimension, transform_dimension)
+
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
+
+    def _augment_batch_(self, batch, random_state, parents, hooks):
+        result = list()
+        for i, images in enumerate(batch.images):
+            image_rs = imresize_single_image(
+                images,
+                (self.transform_dimension[1], self.transform_dimension[0]),
+                interpolation="nearest",
+            )
+            result.append(image_rs)
+        batch.images = np.array(result, batch.images.dtype)
+        return batch

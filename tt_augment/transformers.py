@@ -1,6 +1,6 @@
 import numpy as np
 
-from tt_augment.tt_custom import tt_fwd_bkd
+from tt_augment.tt_custom import custom
 
 
 class TransformWindow:
@@ -105,7 +105,17 @@ class Transform:
 
 class TTA:
     def __init__(self, image_dimension: tuple, transformers: dict):
+        """
+
+        :param image_dimension: (W x H x channels)
+        :param transformers: dictionary of transformation to apply
+        """
         self.image_dimension = image_dimension
+        assert len(self.image_dimension) in [2, 3], (
+            "Expected image to have shape (width, height, [channels]), "
+            "got shape %s." % (self.image_dimension,)
+        )
+
         self.transformers = transformers
 
         self.collection = self.make_transformer()
@@ -119,11 +129,17 @@ class TTA:
     def make_transformer(self):
         collection = list()
         for individual_transformer, transformer_param in self.transformers.items():
-            transformation = getattr(tt_fwd_bkd, individual_transformer)(
+            transformation = getattr(custom, individual_transformer)(
                 **transformer_param
             )
+
+            if transformation.transform_dimension > self.image_dimension:
+                raise ValueError(
+                    "Transformation Dimension Can't be bigger that Image Dimension"
+                )
             window = TransformWindow.get_window(
-                window_size=transformation.transform_dimension, org_size=self.image_dimension,
+                window_size=transformation.transform_dimension,
+                org_size=self.image_dimension,
             )
 
             for win_number, win in window:
@@ -131,6 +147,21 @@ class TTA:
         return collection
 
     def tta_gen(self, image: np.ndarray):
+        """
+
+        :param image: a numpy array of shape (batch x W x H x channel)
+        :return:
+        """
+        assert image.ndim == 4, (
+            "Expected image to have shape (batch ,width, height, [channels]), "
+            "got shape %s." % (image.shape,)
+        )
+
+        _, w, h, c = image.shape
+
+        if (w, h, c) != self.image_dimension:
+            raise ValueError("Mis Match Dimension, Expected %s" % (self.image_dimension, ))
+
         self._tt_image = np.zeros(image.shape)
 
         for transformation in self.collection:
@@ -171,5 +202,10 @@ class TTA:
         self._tt_image[:, part_1_x:part_1_y, part_2_x:part_2_y, :] = inferred_image
 
     def collate_inference(self, transformation: Transform, inferred_image: np.ndarray):
+        assert inferred_image.ndim == 4, (
+            "Expected image to have shape (batch ,width, height, [channels]), "
+            "got shape %s." % (inferred_image.shape,)
+        )
+
         inferred_image = transformation.transform(image=inferred_image, path="bkd")
         self.aggregate(inferred_image=inferred_image, window=transformation.window)

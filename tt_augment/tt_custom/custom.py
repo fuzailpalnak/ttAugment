@@ -1,176 +1,203 @@
-import cv2
 import numpy as np
-from imgaug import imresize_single_image
+from imgaug.augmenters import meta
 
-from imgaug.augmenters import Rotate, sm, meta
-from imgaug.augmenters.flip import fliplr
+from tt_augment.tt_custom.tt_fwd_bkd import (
+    MirrorFWD,
+    MirrorBKD,
+    FlipLR,
+    FlipUD,
+    RotateFWD,
+    RotateBKD,
+    ScaleFWD,
+    ScaleBKD,
+)
 
 
 class TTCustom(meta.Augmenter):
+    """
+    Custom Augmenter are required for Geometric Transformation, When a geometric transformation is applied on the
+    the test image the reverse has to be applied on the predicted image, to get the prediction as per the
+    original non transformed image
+
+    If an Image is rotated by 90, then the prediction is performed on the transformed image, but the prediction has to
+    reversed to match the real image
+
+    """
+
     def __init__(self, network_dimension: tuple, transform_dimension: tuple):
         super().__init__()
 
-        if len(network_dimension) > 3 or len(transform_dimension) > 3:
-            raise ValueError("Dimension MisMatch Expected WxHxB")
-        if (
-            network_dimension[0] < transform_dimension[0]
-            or network_dimension[1] < transform_dimension[1]
-        ):
+        assert len(network_dimension) == 3, (
+            "Expected image to have shape (batch ,width, height, [channels]), "
+            "got shape %s." % (network_dimension,)
+        )
+        assert len(transform_dimension) == 3, (
+            "Expected image to have shape (batch ,width, height, [channels]), "
+            "got shape %s." % (transform_dimension,)
+        )
+
+        if network_dimension < transform_dimension:
             raise ValueError("Network Dimension Can't Be Less Than Transform Dimension")
         self.transform_dimension = transform_dimension
         self.network_dimension = network_dimension
 
+    @property
+    def reversal(self):
+        return True
+
+    def __call__(self, images, do_reversal=False):
+        """
+
+        :param images: batch images of dimension [Batch x Width x Height x Band]
+        :param do_reversal: to reverse the augmentation
+        :return:
+        """
+        if do_reversal:
+            return self.bkd(images)
+        else:
+            return self.fwd(images)
+
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
 
-    def _augment_batch_(self, batch, random_state, parents, hooks):
-        pass
+    def fwd(self, images: np.ndarray) -> np.ndarray:
+        """
+        This function applies transformation on the images which are about to be inferred, generally referred as
+        test images
+
+        :param images: numpy array images
+        :return:
+        """
+        raise NotImplementedError
+
+    def bkd(self, images: np.ndarray) -> np.ndarray:
+        """
+        This function applies transformation on the predicted images, The reason being, the geometric transformation
+        applied on the test images have to be restored/reversed to get the back the original transformation.
+
+        :param images:
+        :return:
+        """
+        raise NotImplementedError
 
 
-class MirrorFWD(TTCustom):
+class Mirror(TTCustom):
+    """
+    Crop an image to transform_dimension and mirror the left pixel to match the size of network_dimension
+    """
+
+    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+        super().__init__(network_dimension, transform_dimension)
+        self.mirror_fwd = MirrorFWD(network_dimension, transform_dimension)
+        self.mirror_bkd = MirrorBKD(network_dimension, transform_dimension)
+
+    def fwd(self, images: np.ndarray) -> np.ndarray:
+        return self.mirror_fwd(images=images)
+
+    def bkd(self, images: np.ndarray) -> np.ndarray:
+        return self.mirror_bkd(images=images)
+
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
+
+
+class CropScale(TTCustom):
+    """
+    Crop an image to transform_dimension and rescale the image to match the size of network_dimension
+    """
+
+    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+        super().__init__(network_dimension, transform_dimension)
+        if transform_dimension >= network_dimension:
+            raise ValueError("Can't Scale array with same Dimension")
+        self.scale_fwd = ScaleFWD(network_dimension, transform_dimension)
+        self.scale_bkd = ScaleBKD(network_dimension, transform_dimension)
+
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
+
+    def fwd(self, images: np.ndarray) -> np.ndarray:
+        return self.scale_fwd(images=images)
+
+    def bkd(self, images: np.ndarray) -> np.ndarray:
+        return self.scale_bkd(images=images)
+
+
+class NoAugment(TTCustom):
+    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+        super().__init__(network_dimension, transform_dimension)
+        if network_dimension != transform_dimension:
+            raise ValueError("Dimension Mis Match")
+
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
+
+    def fwd(self, images: np.ndarray) -> np.ndarray:
+        return images
+
+    def bkd(self, images: np.ndarray) -> np.ndarray:
+        return images
+
+
+class Crop(NoAugment):
+    """
+    Crop an image to transform_dimension
+    """
+
     def __init__(self, network_dimension: tuple, transform_dimension: tuple):
         super().__init__(network_dimension, transform_dimension)
 
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
 
-    def _augment_batch_(self, batch, random_state, parents, hooks):
+class Rot(TTCustom):
+    """
+    Rotate an image
+    """
 
-        images = batch.images
-        nb_images = len(images)
-        result = []
-        for i in sm.xrange(nb_images):
-            img = images[i]
-
-            limit_w = (self.network_dimension[0] - self.transform_dimension[0]) // 2
-
-            limit_h = (self.network_dimension[1] - self.transform_dimension[1]) // 2
-            img = cv2.copyMakeBorder(
-                img,
-                limit_h,
-                limit_h,
-                limit_w,
-                limit_w,
-                borderType=cv2.BORDER_REFLECT_101,
-            )
-            result.append(img)
-        batch.images = np.array(result, images.dtype)
-        return batch
-
-
-class MirrorBKD(TTCustom):
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
-
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
-
-    def _augment_batch_(self, batch, random_state, parents, hooks):
-        images = batch.images
-        nb_images = len(images)
-        result = []
-
-        image_width, image_height = self.network_dimension[0], self.network_dimension[1]
-
-        crop_width, crop_height = self.transform_dimension[0], self.transform_dimension[1]
-
-        for i in sm.xrange(nb_images):
-            img = images[i]
-
-            dy = (image_height - crop_height) // 2
-            dx = (image_width - crop_width) // 2
-
-            y1 = dy
-            y2 = y1 + crop_height
-            x1 = dx
-            x2 = x1 + crop_width
-
-            result.append(img[y1:y2, x1:x2, :])
-        batch.images = np.array(result, images.dtype)
-        return batch
-
-
-class FlipLR(TTCustom):
-    def __init__(self, transform_dimension: tuple):
-        super().__init__(transform_dimension, transform_dimension)
-
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
-
-    def _augment_batch_(self, batch, random_state, parents, hooks):
-        for i, images in enumerate(batch.images):
-            batch.images[i] = fliplr(batch.images[i])
-        return batch
-
-
-class FlipUD(TTCustom):
-    def __init__(self, transform_dimension: tuple):
-        super().__init__(transform_dimension, transform_dimension)
-
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
-
-    def _augment_batch_(self, batch, random_state, parents, hooks):
-        for i, images in enumerate(batch.images):
-            batch.images[i] = batch.images[i][::-1, ...]
-        return batch
-
-
-class RotateFWD(TTCustom):
     def __init__(self, angle: int, transform_dimension: tuple):
         super().__init__(transform_dimension, transform_dimension)
 
-        self.transform = Rotate(rotate=angle)
-
-    def __call__(self, images):
-        return self.transform.augment(images=images)
+        self.rotate_fwd = RotateFWD(angle, transform_dimension)
+        self.rotate_bkd = RotateBKD(angle, transform_dimension)
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
 
+    def fwd(self, images: np.ndarray) -> np.ndarray:
+        return self.rotate_fwd(images=images)
 
-class RotateBKD(TTCustom):
-    def __init__(self, angle: int, transform_dimension: tuple):
+    def bkd(self, images: np.ndarray) -> np.ndarray:
+        return self.rotate_bkd(images=images)
+
+
+class FlipHorizontal(TTCustom):
+    """
+    Flip an image
+    """
+
+    def __init__(self, transform_dimension: tuple):
         super().__init__(transform_dimension, transform_dimension)
 
-        self.transform = Rotate(rotate=-angle)
+        self.flip = FlipLR(transform_dimension)
 
-    def __call__(self, images):
-        return self.transform.augment(images=images)
+    def fwd(self, images: np.ndarray) -> np.ndarray:
+        return self.flip(images=images)
 
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
-
-
-class ScaleFWD(TTCustom):
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
-
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
-
-    def _augment_batch_(self, batch, random_state, parents, hooks):
-        result = list()
-        for i, images in enumerate(batch.images):
-            image_rs = imresize_single_image(images, (self.network_dimension[1], self.network_dimension[0]),
-                                             interpolation="nearest")
-            result.append(image_rs)
-        batch.images = np.array(result, batch.images.dtype)
-        return batch
+    def bkd(self, images: np.ndarray) -> np.ndarray:
+        return self.flip(images=images)
 
 
-class ScaleBKD(TTCustom):
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
+class FlipVertical(TTCustom):
+    """
+    Flip an image
+    """
 
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+    def __init__(self, transform_dimension: tuple):
+        super().__init__(transform_dimension, transform_dimension)
 
-    def _augment_batch_(self, batch, random_state, parents, hooks):
-        result = list()
-        for i, images in enumerate(batch.images):
-            image_rs = imresize_single_image(images, (self.transform_dimension[1], self.transform_dimension[0]),
-                                             interpolation="nearest")
-            result.append(image_rs)
-        batch.images = np.array(result, batch.images.dtype)
-        return batch
+        self.flip = FlipUD(transform_dimension)
+
+    def fwd(self, images: np.ndarray) -> np.ndarray:
+        return self.flip(images=images)
+
+    def bkd(self, images: np.ndarray) -> np.ndarray:
+        return self.flip(images=images)
