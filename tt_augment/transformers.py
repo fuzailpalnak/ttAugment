@@ -155,7 +155,7 @@ class TransformerFamily(list):
     a common output image for all the sections
     """
 
-    def __init__(self, children=None, name=None, family_type=None):
+    def __init__(self, children=None, name=None):
         if children is None:
             list.__init__(self, [])
         elif isinstance(children, Transformer):
@@ -172,23 +172,15 @@ class TransformerFamily(list):
                 "got %s." % (type(children),)
             )
         assert name is not None, "Family Name cant be None"
-        assert (
-            family_type is not None
-        ), "Expected family_type to be [SegmentationTransformer][ClassificationTransformer], got types None"
 
         self._inferred_data = None
 
         self._name = name
-        self._family_type = family_type
         self._child_collation_count = 0
 
     @property
     def name(self):
         return self._name
-
-    @property
-    def family_type(self):
-        return self._family_type
 
     @property
     def inferred_data(self):
@@ -201,15 +193,15 @@ class TransformerFamily(list):
     def add(self, transform: Transformer):
         self.append(transform)
 
-    def get_child(self, image: np.ndarray) -> Transformer:
+    def get_child(self, image: np.ndarray, tt_type: str) -> Transformer:
         assert image.ndim == 4, (
             "Expected image to have shape (batch ,width, height, [channels]), "
             "got shape %s." % (image.shape,)
         )
 
-        if self.family_type == SegmentationTransformer.__name__:
+        if tt_type == SegmentationTransformer.__name__:
             self._inferred_data = np.zeros(image.shape)
-        elif self.family_type == ClassificationTransformer.__name__:
+        elif tt_type == ClassificationTransformer.__name__:
             self._inferred_data = list()
         else:
             raise Exception("Unexpected family type")
@@ -237,13 +229,6 @@ class TransformerFamily(list):
         else:
             tt_data += self.inferred_data
             tt_data /= 2
-        return tt_data
-
-    def transfer_inheritance(self, tt_data):
-        if self.family_type == SegmentationTransformer.__name__:
-            tt_data = self.transfer_segmentation_inheritance(tt_data)
-        else:
-            raise NotImplementedError
         return tt_data
 
 
@@ -327,7 +312,10 @@ class TTA:
         )
 
         if family.child_collation_count == len(family):
-            self._tt_data = family.transfer_inheritance(self.tt_data)
+            if self._tt_type == SegmentationTransformer.__name__:
+                self._tt_data = family.transfer_segmentation_inheritance(self.tt_data)
+            else:
+                raise NotImplementedError
 
     @classmethod
     def tta_segmentation(cls, image_dimension: tuple, transformers: list):
@@ -368,7 +356,6 @@ class TTA:
                 TransformerFamily(
                     children=collection,
                     name=transformer_name,
-                    family_type=SegmentationTransformer.__name__,
                 )
             )
         return cls(
@@ -416,7 +403,6 @@ class TTA:
                 TransformerFamily(
                     children=collection,
                     name=transformer_name,
-                    family_type=ClassificationTransformer.__name__,
                 )
             )
         return cls(
