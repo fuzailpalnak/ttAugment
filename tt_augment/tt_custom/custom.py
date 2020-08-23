@@ -1,5 +1,4 @@
 import numpy as np
-from imgaug.augmenters import meta
 
 from tt_augment.tt_custom.tt_fwd_bkd import (
     MirrorFWD,
@@ -13,7 +12,7 @@ from tt_augment.tt_custom.tt_fwd_bkd import (
 )
 
 
-class TTCustom(meta.Augmenter):
+class TTCustom:
     """
     Custom Augmenter are required for Geometric Transformation, When a geometric transformation is applied on the
     the test image the reverse has to be applied on the predicted image, to get the prediction as per the
@@ -25,8 +24,6 @@ class TTCustom(meta.Augmenter):
     """
 
     def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__()
-
         assert len(network_dimension) == 3, (
             "Expected image to have shape (batch ,width, height, [channels]), "
             "got shape %s." % (network_dimension,)
@@ -45,18 +42,6 @@ class TTCustom(meta.Augmenter):
     def reversal(self):
         return True
 
-    def __call__(self, images, do_reversal=False):
-        """
-
-        :param images: batch images of dimension [Batch x Width x Height x Band]
-        :param do_reversal: to reverse the augmentation
-        :return:
-        """
-        if do_reversal:
-            return self.bkd(images)
-        else:
-            return self.fwd(images)
-
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
 
@@ -70,15 +55,23 @@ class TTCustom(meta.Augmenter):
         """
         raise NotImplementedError
 
-    def bkd(self, images: np.ndarray) -> np.ndarray:
+    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
         """
         This function applies transformation on the predicted images, The reason being, the geometric transformation
         applied on the test images have to be restored/reversed to get the back the original transformation.
 
-        :param images:
+        :param inferred_data:
         :return:
         """
-        raise NotImplementedError
+        pass
+
+    def bkd_classification(self, inferred_data: float) -> float:
+        """
+        Transform back the classification output
+        :param inferred_data:
+        :return:
+        """
+        pass
 
 
 class Mirror(TTCustom):
@@ -94,8 +87,11 @@ class Mirror(TTCustom):
     def fwd(self, images: np.ndarray) -> np.ndarray:
         return self.mirror_fwd(images=images)
 
-    def bkd(self, images: np.ndarray) -> np.ndarray:
-        return self.mirror_bkd(images=images)
+    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
+        return self.mirror_bkd(images=inferred_data)
+
+    def bkd_classification(self, inferred_data: float) -> float:
+        return inferred_data
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
@@ -119,8 +115,11 @@ class CropScale(TTCustom):
     def fwd(self, images: np.ndarray) -> np.ndarray:
         return self.scale_fwd(images=images)
 
-    def bkd(self, images: np.ndarray) -> np.ndarray:
-        return self.scale_bkd(images=images)
+    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
+        return self.scale_bkd(images=inferred_data)
+
+    def bkd_classification(self, inferred_data: float) -> float:
+        return inferred_data
 
 
 class NoAugment(TTCustom):
@@ -135,8 +134,11 @@ class NoAugment(TTCustom):
     def fwd(self, images: np.ndarray) -> np.ndarray:
         return images
 
-    def bkd(self, images: np.ndarray) -> np.ndarray:
-        return images
+    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
+        return inferred_data
+
+    def bkd_classification(self, inferred_data: float) -> float:
+        return inferred_data
 
 
 class Crop(NoAugment):
@@ -165,8 +167,11 @@ class Rot(TTCustom):
     def fwd(self, images: np.ndarray) -> np.ndarray:
         return self.rotate_fwd(images=images)
 
-    def bkd(self, images: np.ndarray) -> np.ndarray:
-        return self.rotate_bkd(images=images)
+    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
+        return self.rotate_bkd(images=inferred_data)
+
+    def bkd_classification(self, inferred_data: float) -> float:
+        return inferred_data
 
 
 class FlipHorizontal(TTCustom):
@@ -182,8 +187,11 @@ class FlipHorizontal(TTCustom):
     def fwd(self, images: np.ndarray) -> np.ndarray:
         return self.flip(images=images)
 
-    def bkd(self, images: np.ndarray) -> np.ndarray:
-        return self.flip(images=images)
+    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
+        return self.flip(images=inferred_data)
+
+    def bkd_classification(self, inferred_data: float) -> float:
+        return inferred_data
 
 
 class FlipVertical(TTCustom):
@@ -199,5 +207,8 @@ class FlipVertical(TTCustom):
     def fwd(self, images: np.ndarray) -> np.ndarray:
         return self.flip(images=images)
 
-    def bkd(self, images: np.ndarray) -> np.ndarray:
-        return self.flip(images=images)
+    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
+        return self.flip(images=inferred_data)
+
+    def bkd_classification(self, inferred_data: float) -> float:
+        return inferred_data

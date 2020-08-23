@@ -22,8 +22,8 @@ class Transformer:
         self.transformer = transformer
 
         self._window = window
-        self._img_fwd_transform = None
-        self._img_bkd_transform = None
+        self._data_fwd_transform = None
+        self._data_bkd_transform = None
 
         self._has_reverse = hasattr(self.transformer, "reversal")
 
@@ -32,12 +32,12 @@ class Transformer:
         return self._window
 
     @property
-    def img_fwd_transform(self):
-        return self._img_fwd_transform
+    def data_fwd_transform(self):
+        return self._data_fwd_transform
 
     @property
-    def img_bkd_transform(self):
-        return self._img_bkd_transform
+    def data_bkd_transform(self):
+        return self._data_bkd_transform
 
     def apply_fwd_transform(self, image: np.ndarray):
         """
@@ -46,19 +46,16 @@ class Transformer:
         :param image:
         :return:
         """
-        self._img_fwd_transform = self.transformer(images=image)
+        self._data_fwd_transform = self.transformer.fwd(images=image)
 
-    def apply_bkd_transform(self, image: np.ndarray):
+    def apply_bkd_transform(self, inferred_data):
         """
         Reverse back the applied transformation
 
-        :param image:
+        :param inferred_data:
         :return:
         """
-        if self._has_reverse:
-            self._img_bkd_transform = self.transformer(images=image, do_reversal=True)
-        else:
-            self._img_bkd_transform = image
+        raise NotImplementedError
 
     def data(self, image: np.ndarray) -> np.ndarray:
         return image[
@@ -68,12 +65,97 @@ class Transformer:
             :,
         ]
 
+    def union(self, data):
+        raise NotImplementedError
+
+
+class SegmentationTransformer(Transformer):
+    def __init__(self, transformer, window):
+        super().__init__(transformer, window)
+
+    def apply_bkd_transform(self, inferred_data: np.ndarray):
+        """
+        Reverse back the applied transformation
+
+        :param inferred_data:
+        :return:
+        """
+        assert inferred_data.ndim == 4, (
+            "Expected image to have shape (batch ,width, height, [channels]), "
+            "got shape %s." % (inferred_data.shape,)
+        )
+
+        if self._has_reverse:
+            self._data_bkd_transform = self.transformer.bkd_seg(
+                inferred_data=inferred_data
+            )
+        else:
+            self._data_bkd_transform = inferred_data
+
+    def union(self, data: np.ndarray):
+        """
+        Merges the output of the child with the family, i.e the previous output
+
+        :param data:
+        :return:
+        """
+
+        part_1_x = self.window[0][0]
+        part_1_y = self.window[0][1]
+        part_2_x = self.window[1][0]
+        part_2_y = self.window[1][1]
+
+        cropped_image = data[:, part_1_x:part_1_y, part_2_x:part_2_y, :]
+
+        inferred_image = cropped_image + self.data_bkd_transform
+
+        if np.any(cropped_image):
+            intersecting_inference_elements = np.zeros(cropped_image.shape)
+            intersecting_inference_elements[cropped_image > 0] = 1
+
+            non_intersecting_inference_elements = 1 - intersecting_inference_elements
+
+            intersected_inference = inferred_image * intersecting_inference_elements
+            aggregate_inference = intersected_inference / 2
+
+            non_intersected_inference = np.multiply(
+                non_intersecting_inference_elements, inferred_image
+            )
+            inferred_image = aggregate_inference + non_intersected_inference
+        data[:, part_1_x:part_1_y, part_2_x:part_2_y, :] = inferred_image
+        return data
+
+
+class ClassificationTransformer(Transformer):
+    def __init__(self, transformer, window):
+        super().__init__(transformer, window)
+
+    def apply_bkd_transform(self, inferred_data: float):
+        """
+        Reverse back the applied transformation
+
+        :param inferred_data:
+        :return:
+        """
+        if self._has_reverse:
+            self._data_bkd_transform = self.transformer.bkd_classification(
+                inferred_data=inferred_data
+            )
+        else:
+            self._data_bkd_transform = inferred_data
+
+    def union(self, data: list):
+        data.append(self._data_bkd_transform)
+        return data
+
 
 class TransformerFamily(list):
     """
-    Contains the list the Transformers that belong to the same Augmentation class
+    When the image is split in multiple section, this class hold the sections together as a family, and maintains
+    a common output image for all the sections
     """
-    def __init__(self, children=None, name=None):
+
+    def __init__(self, children=None, name=None, family_type=None):
         if children is None:
             list.__init__(self, [])
         elif isinstance(children, Transformer):
@@ -90,9 +172,14 @@ class TransformerFamily(list):
                 "got %s." % (type(children),)
             )
         assert name is not None, "Family Name cant be None"
+        assert (
+            family_type is not None
+        ), "Expected family_type to be [SegmentationTransformer][ClassificationTransformer], got types None"
 
-        self._inferred_image = None
+        self._inferred_data = None
+
         self._name = name
+        self._family_type = family_type
         self._child_collation_count = 0
 
     @property
@@ -100,8 +187,12 @@ class TransformerFamily(list):
         return self._name
 
     @property
-    def inferred_image(self):
-        return self._inferred_image
+    def family_type(self):
+        return self._family_type
+
+    @property
+    def inferred_data(self):
+        return self._inferred_data
 
     @property
     def child_collation_count(self):
@@ -116,61 +207,44 @@ class TransformerFamily(list):
             "got shape %s." % (image.shape,)
         )
 
-        self._inferred_image = np.zeros(image.shape)
+        if self.family_type == SegmentationTransformer.__name__:
+            self._inferred_data = np.zeros(image.shape)
+        elif self.family_type == ClassificationTransformer.__name__:
+            self._inferred_data = list()
+        else:
+            raise Exception("Unexpected family type")
         for child in self:
             child.apply_fwd_transform(child.data(image=image))
 
             yield child
 
-    def add_inferred_to_family(self, image: np.ndarray, child=None, child_index=None):
-        assert image.ndim == 4, (
-            "Expected image to have shape (batch ,width, height, [channels]), "
-            "got shape %s." % (image.shape,)
-        )
-
+    def add_inferred_to_family(
+        self, inferred_data: np.ndarray, child=None, child_index=None
+    ):
         if child is None:
             child = self[child_index]
         assert isinstance(
             child, Transformer
         ), "Expected child to be Transformer, got types %s." % (str(type(child)))
 
-        child.apply_bkd_transform(image=image)
-        self.dissolve_child(child)
+        child.apply_bkd_transform(inferred_data=inferred_data)
+        self._inferred_data = child.union(self._inferred_data)
         self._child_collation_count += 1
 
-    def dissolve_child(self, child):
-        """
-        Merges the output of the child with the family, i.e the previous output
+    def transfer_segmentation_inheritance(self, tt_data):
+        if not np.any(tt_data):
+            tt_data = self.inferred_data
+        else:
+            tt_data += self.inferred_data
+            tt_data /= 2
+        return tt_data
 
-        :param child:
-        :return:
-        """
-
-        part_1_x = child.window[0][0]
-        part_1_y = child.window[0][1]
-        part_2_x = child.window[1][0]
-        part_2_y = child.window[1][1]
-
-        cropped_image = self._inferred_image[:, part_1_x:part_1_y, part_2_x:part_2_y, :]
-
-        inferred_image = cropped_image + child.img_bkd_transform
-
-        if np.any(cropped_image):
-            intersecting_inference_elements = np.zeros(cropped_image.shape)
-            intersecting_inference_elements[cropped_image > 0] = 1
-
-            non_intersecting_inference_elements = 1 - intersecting_inference_elements
-
-            intersected_inference = inferred_image * intersecting_inference_elements
-            aggregate_inference = intersected_inference / 2
-
-            non_intersected_inference = np.multiply(
-                non_intersecting_inference_elements, inferred_image
-            )
-            inferred_image = aggregate_inference + non_intersected_inference
-        self._inferred_image[
-            :, part_1_x:part_1_y, part_2_x:part_2_y, :
-        ] = inferred_image
+    def transfer_inheritance(self, tt_data):
+        if self.family_type == SegmentationTransformer.__name__:
+            tt_data = self.transfer_segmentation_inheritance(tt_data)
+        else:
+            raise NotImplementedError
+        return tt_data
 
 
 @dataclass
@@ -181,22 +255,18 @@ class Batch:
 
 
 class TTA:
-    def __init__(self, image_dimension: tuple, transformers: list):
+    def __init__(self, image_dimension: tuple, tt_collection: list, tt_type: str):
         """
 
         :param image_dimension: (W x H x channels)
-        :param transformers: dictionary of transformation to apply
+        :param tt_collection:
         """
         self.image_dimension = image_dimension
-        assert len(self.image_dimension) in [2, 3], (
-            "Expected image to have shape (width, height, [channels]), "
-            "got shape %s." % (self.image_dimension,)
-        )
 
-        self._tt_image = None
-        self._tt_family = list()
+        self._tt_data = None
+        self._tt_collection = tt_collection
+        self._tt_type = tt_type
 
-        self._get_family_collection(transformers)
         self._print_dict = {
             "Transformation": "None",
             "Family": "None",
@@ -205,38 +275,8 @@ class TTA:
         }
 
     @property
-    def tt_image(self):
-        return self._tt_image
-
-    def _get_family_collection(self, transformer):
-        for individual_transformer in transformer:
-            assert list(individual_transformer.keys()) == [
-                "name",
-                "param",
-            ], "Expected Keys 'name' and 'param', "
-            transformer_name, transformer_param = (
-                individual_transformer["name"],
-                individual_transformer["param"],
-            )
-
-            collection = list()
-
-            transformer = getattr(custom, transformer_name)(**transformer_param)
-
-            if transformer.transform_dimension > self.image_dimension:
-                raise ValueError(
-                    "Transformation Dimension Can't be bigger that Image Dimension"
-                )
-            window = Window.get_window(
-                window_size=transformer.transform_dimension,
-                org_size=self.image_dimension,
-            )
-
-            for win_number, win in window:
-                collection.append(Transformer(transformer=transformer, window=win))
-            self._tt_family.append(
-                TransformerFamily(children=collection, name=transformer_name)
-            )
+    def tt_data(self):
+        return self._tt_data
 
     def get_batch(self, image) -> Batch:
         """
@@ -250,10 +290,16 @@ class TTA:
             "Expected image to have shape %s, "
             "got shape %s." % (self.image_dimension, (w, h, c),)
         )
-        self._tt_image = np.zeros(image.shape)
-        for family_iterator, transformer_family in enumerate(self._tt_family):
+
+        if self._tt_type == SegmentationTransformer.__name__:
+            self._tt_data = np.zeros(image.shape)
+        elif self._tt_type == ClassificationTransformer.__name__:
+            self._tt_data = list()
+        else:
+            raise Exception("Unexpected type")
+        for family_iterator, transformer_family in enumerate(self._tt_collection):
             self._print_dict["Transformation"] = "{}/{}".format(
-                family_iterator + 1, len(self._tt_family)
+                family_iterator + 1, len(self._tt_collection)
             )
             self._print_dict["Family"] = transformer_family.name
             for iterator, child in enumerate(transformer_family.get_child(image)):
@@ -262,7 +308,7 @@ class TTA:
                 )
                 Printer.print(self._print_dict)
 
-                yield Batch(transformer_family, child, child.img_fwd_transform)
+                yield Batch(transformer_family, child, child.data_fwd_transform)
 
     def collate_batch(self, image: np.ndarray, batch: Batch):
         """
@@ -281,8 +327,100 @@ class TTA:
         )
 
         if family.child_collation_count == len(family):
-            if not np.any(self._tt_image):
-                self._tt_image = family.inferred_image
-            else:
-                self._tt_image += family.inferred_image
-                self._tt_image /= 2
+            self._tt_data = family.transfer_inheritance(self.tt_data)
+
+    @classmethod
+    def tta_segmentation(cls, image_dimension: tuple, transformers: list):
+        assert len(image_dimension) == 3, (
+            "Expected image to have shape (width, height, [channels]), "
+            "got shape %s." % (image_dimension,)
+        )
+
+        seg_collection = list()
+
+        for individual_transformer in transformers:
+            assert list(individual_transformer.keys()) == [
+                "name",
+                "param",
+            ], "Expected Keys 'name' and 'param', "
+            transformer_name, transformer_param = (
+                individual_transformer["name"],
+                individual_transformer["param"],
+            )
+
+            collection = list()
+
+            transformer = getattr(custom, transformer_name)(**transformer_param)
+
+            if transformer.transform_dimension > image_dimension:
+                raise ValueError(
+                    "Transformation Dimension Can't be bigger that Image Dimension"
+                )
+            window = Window.get_window(
+                window_size=transformer.transform_dimension, org_size=image_dimension,
+            )
+
+            for win_number, win in window:
+                collection.append(
+                    SegmentationTransformer(transformer=transformer, window=win)
+                )
+            seg_collection.append(
+                TransformerFamily(
+                    children=collection,
+                    name=transformer_name,
+                    family_type=SegmentationTransformer.__name__,
+                )
+            )
+        return cls(
+            image_dimension=image_dimension,
+            tt_collection=seg_collection,
+            tt_type=SegmentationTransformer.__name__,
+        )
+
+    @classmethod
+    def tta_classification(cls, image_dimension: tuple, transformers: list):
+        assert len(image_dimension) == 3, (
+            "Expected image to have shape (width, height, [channels]), "
+            "got shape %s." % (image_dimension,)
+        )
+
+        classification_collection = list()
+
+        for individual_transformer in transformers:
+            assert list(individual_transformer.keys()) == [
+                "name",
+                "param",
+            ], "Expected Keys 'name' and 'param', "
+            transformer_name, transformer_param = (
+                individual_transformer["name"],
+                individual_transformer["param"],
+            )
+
+            collection = list()
+
+            transformer = getattr(custom, transformer_name)(**transformer_param)
+
+            if transformer.transform_dimension > image_dimension:
+                raise ValueError(
+                    "Transformation Dimension Can't be bigger that Image Dimension"
+                )
+            window = Window.get_window(
+                window_size=transformer.transform_dimension, org_size=image_dimension,
+            )
+
+            for win_number, win in window:
+                collection.append(
+                    ClassificationTransformer(transformer=transformer, window=win)
+                )
+            classification_collection.append(
+                TransformerFamily(
+                    children=collection,
+                    name=transformer_name,
+                    family_type=ClassificationTransformer.__name__,
+                )
+            )
+        return cls(
+            image_dimension=image_dimension,
+            tt_collection=classification_collection,
+            tt_type=ClassificationTransformer.__name__,
+        )
