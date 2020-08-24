@@ -27,8 +27,8 @@ class TTCustom:
     def __init__(
         self,
         fwd=None,
-        seg_bkd=None,
-        classification_bkd=None,
+        segmentation_reverse=None,
+        classification_reverse=None,
         network_dimension=None,
         transform_dimension=None,
     ):
@@ -47,10 +47,10 @@ class TTCustom:
                 "Expected to have fwd of type [meta.Augmenter], "
                 "but received %s." % (type(fwd),)
             )
-        if seg_bkd is not None:
-            assert isinstance(seg_bkd, meta.Augmenter), (
+        if segmentation_reverse is not None:
+            assert isinstance(segmentation_reverse, meta.Augmenter), (
                 "Expected to have fwd of type [meta.Augmenter], "
-                "but received %s." % (type(seg_bkd),)
+                "but received %s." % (type(segmentation_reverse),)
             )
         if network_dimension < transform_dimension:
             raise ValueError("Network Dimension Can't Be Less Than Transform Dimension")
@@ -59,11 +59,11 @@ class TTCustom:
 
         self._fwd = fwd
 
-        if seg_bkd is None:
-            self._seg_bkd = NoSegAug(self.network_dimension, self.transform_dimension)
+        if segmentation_reverse is None:
+            self._segmentation_reverse = NoSegAug(self.network_dimension, self.transform_dimension)
         else:
-            self._seg_bkd = seg_bkd
-        self._classification_bkd = classification_bkd
+            self._segmentation_reverse = segmentation_reverse
+        self._classification_reverse = classification_reverse
 
     @property
     def fwd(self) -> meta.Augmenter:
@@ -76,23 +76,23 @@ class TTCustom:
         return self._fwd
 
     @property
-    def seg_bkd(self) -> meta.Augmenter:
+    def segmentation_reverse(self) -> meta.Augmenter:
         """
         This function applies transformation on the predicted images, The reason being, the geometric transformation
         applied on the test images have to be restored/reversed to get the back the original transformation.
 
         :return:
         """
-        return self._seg_bkd
+        return self._segmentation_reverse
 
     @property
-    def classification_bkd(self):
+    def classification_reverse(self):
         """
         Transform back the classification output
 
         :return:
         """
-        return self._classification_bkd
+        return self._classification_reverse
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
@@ -116,11 +116,11 @@ class Mirror(TTCustom):
         return self._fwd
 
     @property
-    def seg_bkd(self) -> meta.Augmenter:
+    def segmentation_reverse(self) -> meta.Augmenter:
         return self._seg
 
     @property
-    def classification_bkd(self):
+    def classification_reverse(self):
         return self._classification
 
 
@@ -144,11 +144,11 @@ class CropScale(TTCustom):
         return self._fwd
 
     @property
-    def seg_bkd(self) -> meta.Augmenter:
+    def segmentation_reverse(self) -> meta.Augmenter:
         return self._seg
 
     @property
-    def classification_bkd(self):
+    def classification_reverse(self):
         return self._classification
 
 
@@ -168,11 +168,11 @@ class NoAugment(TTCustom):
         return self._fwd
 
     @property
-    def seg_bkd(self) -> meta.Augmenter:
+    def segmentation_reverse(self) -> meta.Augmenter:
         return self._seg
 
     @property
-    def classification_bkd(self):
+    def classification_reverse(self):
         return self._classification
 
 
@@ -210,11 +210,11 @@ class Rot(TTCustom):
         return self._fwd
 
     @property
-    def seg_bkd(self) -> meta.Augmenter:
+    def segmentation_reverse(self) -> meta.Augmenter:
         return self._seg
 
     @property
-    def classification_bkd(self):
+    def classification_reverse(self):
         return self._classification
 
 
@@ -237,11 +237,11 @@ class FlipHorizontal(TTCustom):
         return self._fwd
 
     @property
-    def seg_bkd(self) -> meta.Augmenter:
+    def segmentation_reverse(self) -> meta.Augmenter:
         return self._seg
 
     @property
-    def classification_bkd(self):
+    def classification_reverse(self):
         return self._classification
 
 
@@ -263,9 +263,9 @@ class FlipVertical(TTCustom):
         return self._fwd
 
     @property
-    def seg_bkd(self) -> meta.Augmenter:
+    def segmentation_reverse(self) -> meta.Augmenter:
         return self._seg
 
     @property
-    def classification_bkd(self):
+    def classification_reverse(self):
         return self._classification

@@ -1,4 +1,4 @@
-from tt_augment import tt_custom, compute
+from tt_augment import tt_custom, arithmetic_aggregate
 from tt_augment.printer import Printer
 
 try:
@@ -18,8 +18,8 @@ class Sibling:
         self._window = window
         self._name = self.transformer.__class__.__name__
 
-        self._data_fwd_transform = None
-        self._data_bkd_transform = None
+        self._data_fwd = None
+        self._data_bkd = None
 
     @property
     def name(self):
@@ -30,20 +30,20 @@ class Sibling:
         return self._window
 
     @property
-    def data_fwd_transform(self):
-        return self._data_fwd_transform
+    def data_fwd(self):
+        return self._data_fwd
 
     @property
-    def data_bkd_transform(self):
-        return self._data_bkd_transform
+    def data_bkd(self):
+        return self._data_bkd
 
-    @data_fwd_transform.setter
-    def data_fwd_transform(self, value):
-        self._data_fwd_transform = value
+    @data_fwd.setter
+    def data_fwd(self, value):
+        self._data_fwd = value
 
-    @data_bkd_transform.setter
-    def data_bkd_transform(self, value):
-        self._data_bkd_transform = value
+    @data_bkd.setter
+    def data_bkd(self, value):
+        self._data_bkd = value
 
     def data(self, image: np.ndarray) -> np.ndarray:
         return image[
@@ -101,7 +101,10 @@ class Family(list):
     def tta(self, image: np.ndarray, arithmetic="mean"):
         raise NotImplementedError
 
-    def extend_tt_member(self, inferred_data, sibling):
+    def tt_reverse(self, inferred_data, sibling):
+        raise NotImplementedError
+
+    def extend_tt_member(self, sibling):
         raise NotImplementedError
 
 
@@ -135,7 +138,7 @@ class Segmentation(Family, list):
             "got shape %s." % (image.shape,)
         )
 
-        arithmetic_calculation = getattr(compute, arithmetic_compute)()
+        arithmetic_calculation = getattr(arithmetic_aggregate, arithmetic_compute)()
 
         self.tt_family = np.zeros(image.shape)
 
@@ -143,22 +146,30 @@ class Segmentation(Family, list):
             self.tt_member = np.zeros(image.shape)
 
             for iterator, sibling in enumerate(member.get_sibling()):
-                sibling.data_fwd_transform = sibling.transformer.fwd(
+                sibling.data_fwd = sibling.transformer.fwd(
                     images=sibling.data(image=image)
                 )
                 yield sibling
+                self.extend_tt_member(sibling)
+
             self.tt_family = arithmetic_calculation.collect(
                 self.tt_family, self.tt_member
             )
         self.tt_family = arithmetic_calculation.aggregate(self.tt_family, len(self))
 
-    def extend_tt_member(self, inferred_data, sibling):
+    def tt_reverse(self, inferred_data: np.ndarray, sibling: Sibling):
+        assert inferred_data.ndim == 4, (
+            "Expected image to have shape (batch ,width, height, [channels]), "
+            "got shape %s." % (inferred_data.shape,)
+        )
 
         assert isinstance(
             sibling, Sibling
         ), "Expected child to be Member, got types %s." % (str(type(sibling)))
 
-        sibling.data_bkd_transform = sibling.transformer.seg_bkd(images=inferred_data)
+        sibling.data_bkd = sibling.transformer.segmentation_reverse(images=inferred_data)
+
+    def extend_tt_member(self, sibling):
 
         part_1_x = sibling.window[0][0]
         part_1_y = sibling.window[0][1]
@@ -167,7 +178,7 @@ class Segmentation(Family, list):
 
         cropped_image = self.tt_member[:, part_1_x:part_1_y, part_2_x:part_2_y, :]
 
-        inferred_image = cropped_image + sibling.data_bkd_transform
+        inferred_image = cropped_image + sibling.data_bkd
 
         if np.any(cropped_image):
             intersecting_inference_elements = np.zeros(cropped_image.shape)
@@ -195,8 +206,11 @@ class Classification(Family, list):
     def tta(self, image: np.ndarray, arithmetic="mean"):
         raise NotImplementedError
 
-    def extend_tt_member(self, inferred_data, sibling):
+    def extend_tt_member(self, sibling):
         raise NotImplementedError
+
+    def tt_reverse(self, inferred_data, sibling):
+        pass
 
 
 def generate_family_members(image_dimension: tuple, transformers: list):
