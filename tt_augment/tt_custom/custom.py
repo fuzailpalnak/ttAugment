@@ -1,4 +1,4 @@
-import numpy as np
+from imgaug.augmenters import meta
 
 from tt_augment.tt_custom.tt_fwd_bkd import (
     MirrorFWD,
@@ -9,6 +9,7 @@ from tt_augment.tt_custom.tt_fwd_bkd import (
     RotateBKD,
     ScaleFWD,
     ScaleBKD,
+    NoSegAug,
 )
 
 
@@ -23,7 +24,15 @@ class TTCustom:
 
     """
 
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+    def __init__(
+        self,
+        fwd=None,
+        seg_bkd=None,
+        classification_bkd=None,
+        network_dimension=None,
+        transform_dimension=None,
+    ):
+
         assert len(network_dimension) == 3, (
             "Expected image to have shape (batch ,width, height, [channels]), "
             "got shape %s." % (network_dimension,)
@@ -33,45 +42,60 @@ class TTCustom:
             "got shape %s." % (transform_dimension,)
         )
 
+        if fwd is not None:
+            assert isinstance(fwd, meta.Augmenter), (
+                "Expected to have fwd of type [meta.Augmenter], "
+                "but received %s." % (type(fwd),)
+            )
+        if seg_bkd is not None:
+            assert isinstance(seg_bkd, meta.Augmenter), (
+                "Expected to have fwd of type [meta.Augmenter], "
+                "but received %s." % (type(seg_bkd),)
+            )
         if network_dimension < transform_dimension:
             raise ValueError("Network Dimension Can't Be Less Than Transform Dimension")
         self.transform_dimension = transform_dimension
         self.network_dimension = network_dimension
 
+        self._fwd = fwd
+
+        if seg_bkd is None:
+            self._seg_bkd = NoSegAug(self.network_dimension, self.transform_dimension)
+        else:
+            self._seg_bkd = seg_bkd
+        self._classification_bkd = classification_bkd
+
     @property
-    def reversal(self):
-        return True
-
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
-
-    def fwd(self, images: np.ndarray) -> np.ndarray:
+    def fwd(self) -> meta.Augmenter:
         """
         This function applies transformation on the images which are about to be inferred, generally referred as
         test images
 
-        :param images: numpy array images
         :return:
         """
-        raise NotImplementedError
+        return self._fwd
 
-    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
+    @property
+    def seg_bkd(self) -> meta.Augmenter:
         """
         This function applies transformation on the predicted images, The reason being, the geometric transformation
         applied on the test images have to be restored/reversed to get the back the original transformation.
 
-        :param inferred_data:
         :return:
         """
-        pass
+        return self._seg_bkd
 
-    def bkd_classification(self, inferred_data: float) -> float:
+    @property
+    def classification_bkd(self):
         """
         Transform back the classification output
-        :param inferred_data:
+
         :return:
         """
-        pass
+        return self._classification_bkd
+
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
 
 
 class Mirror(TTCustom):
@@ -79,22 +103,25 @@ class Mirror(TTCustom):
     Crop an image to transform_dimension and mirror the left pixel to match the size of network_dimension
     """
 
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
-        self.mirror_fwd = MirrorFWD(network_dimension, transform_dimension)
-        self.mirror_bkd = MirrorBKD(network_dimension, transform_dimension)
+    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+        super().__init__(
+            network_dimension=network_dimension, transform_dimension=transform_dimension
+        )
+        self._fwd = MirrorFWD(self.network_dimension, self.transform_dimension)
+        self._seg = MirrorBKD(self.network_dimension, self.transform_dimension)
+        self._classification = None
 
-    def fwd(self, images: np.ndarray) -> np.ndarray:
-        return self.mirror_fwd(images=images)
+    @property
+    def fwd(self) -> meta.Augmenter:
+        return self._fwd
 
-    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
-        return self.mirror_bkd(images=inferred_data)
+    @property
+    def seg_bkd(self) -> meta.Augmenter:
+        return self._seg
 
-    def bkd_classification(self, inferred_data: float) -> float:
-        return inferred_data
-
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+    @property
+    def classification_bkd(self):
+        return self._classification
 
 
 class CropScale(TTCustom):
@@ -102,43 +129,51 @@ class CropScale(TTCustom):
     Crop an image to transform_dimension and rescale the image to match the size of network_dimension
     """
 
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
+    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+        super().__init__(
+            network_dimension=network_dimension, transform_dimension=transform_dimension
+        )
         if transform_dimension >= network_dimension:
             raise ValueError("Can't Scale array with same Dimension")
-        self.scale_fwd = ScaleFWD(network_dimension, transform_dimension)
-        self.scale_bkd = ScaleBKD(network_dimension, transform_dimension)
+        self._fwd = ScaleFWD(self.network_dimension, self.transform_dimension)
+        self._seg = ScaleBKD(self.network_dimension, self.transform_dimension)
+        self._classification = None
 
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+    @property
+    def fwd(self) -> meta.Augmenter:
+        return self._fwd
 
-    def fwd(self, images: np.ndarray) -> np.ndarray:
-        return self.scale_fwd(images=images)
+    @property
+    def seg_bkd(self) -> meta.Augmenter:
+        return self._seg
 
-    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
-        return self.scale_bkd(images=inferred_data)
-
-    def bkd_classification(self, inferred_data: float) -> float:
-        return inferred_data
+    @property
+    def classification_bkd(self):
+        return self._classification
 
 
 class NoAugment(TTCustom):
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
+    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+        super().__init__(
+            network_dimension=network_dimension, transform_dimension=transform_dimension
+        )
         if network_dimension != transform_dimension:
             raise ValueError("Dimension Mis Match")
+        self._fwd = NoSegAug(self.network_dimension, self.transform_dimension)
+        self._seg = NoSegAug(self.network_dimension, self.transform_dimension)
+        self._classification = None
 
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+    @property
+    def fwd(self) -> meta.Augmenter:
+        return self._fwd
 
-    def fwd(self, images: np.ndarray) -> np.ndarray:
-        return images
+    @property
+    def seg_bkd(self) -> meta.Augmenter:
+        return self._seg
 
-    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
-        return inferred_data
-
-    def bkd_classification(self, inferred_data: float) -> float:
-        return inferred_data
+    @property
+    def classification_bkd(self):
+        return self._classification
 
 
 class Crop(NoAugment):
@@ -146,8 +181,10 @@ class Crop(NoAugment):
     Crop an image to transform_dimension
     """
 
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
+    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+        super().__init__(
+            network_dimension=network_dimension, transform_dimension=transform_dimension
+        )
 
 
 class Rot(TTCustom):
@@ -155,23 +192,30 @@ class Rot(TTCustom):
     Rotate an image
     """
 
-    def __init__(self, angle: int, transform_dimension: tuple):
-        super().__init__(transform_dimension, transform_dimension)
+    def __init__(
+        self, transform_dimension: tuple, network_dimension: tuple, angle: int
+    ):
+        super().__init__(
+            network_dimension=network_dimension, transform_dimension=transform_dimension
+        )
 
-        self.rotate_fwd = RotateFWD(angle, transform_dimension)
-        self.rotate_bkd = RotateBKD(angle, transform_dimension)
+        self.angle = angle
 
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        self._fwd = RotateFWD(self.angle, self.transform_dimension)
+        self._seg = RotateBKD(self.angle, self.transform_dimension)
+        self._classification = None
 
-    def fwd(self, images: np.ndarray) -> np.ndarray:
-        return self.rotate_fwd(images=images)
+    @property
+    def fwd(self) -> meta.Augmenter:
+        return self._fwd
 
-    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
-        return self.rotate_bkd(images=inferred_data)
+    @property
+    def seg_bkd(self) -> meta.Augmenter:
+        return self._seg
 
-    def bkd_classification(self, inferred_data: float) -> float:
-        return inferred_data
+    @property
+    def classification_bkd(self):
+        return self._classification
 
 
 class FlipHorizontal(TTCustom):
@@ -179,19 +223,26 @@ class FlipHorizontal(TTCustom):
     Flip an image
     """
 
-    def __init__(self, transform_dimension: tuple):
-        super().__init__(transform_dimension, transform_dimension)
+    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+        super().__init__(
+            network_dimension=network_dimension, transform_dimension=transform_dimension
+        )
 
-        self.flip = FlipLR(transform_dimension)
+        self._fwd = FlipLR(self.transform_dimension)
+        self._seg = FlipLR(self.transform_dimension)
+        self._classification = None
 
-    def fwd(self, images: np.ndarray) -> np.ndarray:
-        return self.flip(images=images)
+    @property
+    def fwd(self) -> meta.Augmenter:
+        return self._fwd
 
-    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
-        return self.flip(images=inferred_data)
+    @property
+    def seg_bkd(self) -> meta.Augmenter:
+        return self._seg
 
-    def bkd_classification(self, inferred_data: float) -> float:
-        return inferred_data
+    @property
+    def classification_bkd(self):
+        return self._classification
 
 
 class FlipVertical(TTCustom):
@@ -199,16 +250,22 @@ class FlipVertical(TTCustom):
     Flip an image
     """
 
-    def __init__(self, transform_dimension: tuple):
-        super().__init__(transform_dimension, transform_dimension)
+    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+        super().__init__(
+            network_dimension=network_dimension, transform_dimension=transform_dimension
+        )
+        self._fwd = FlipUD(self.transform_dimension)
+        self._seg = FlipUD(self.transform_dimension)
+        self._classification = None
 
-        self.flip = FlipUD(transform_dimension)
+    @property
+    def fwd(self) -> meta.Augmenter:
+        return self._fwd
 
-    def fwd(self, images: np.ndarray) -> np.ndarray:
-        return self.flip(images=images)
+    @property
+    def seg_bkd(self) -> meta.Augmenter:
+        return self._seg
 
-    def bkd_seg(self, inferred_data: np.ndarray) -> np.ndarray:
-        return self.flip(images=inferred_data)
-
-    def bkd_classification(self, inferred_data: float) -> float:
-        return inferred_data
+    @property
+    def classification_bkd(self):
+        return self._classification

@@ -6,34 +6,15 @@ from imgaug.augmenters import Rotate, sm, meta
 from imgaug.augmenters.flip import fliplr
 
 
-class TTFwdBkd(meta.Augmenter):
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__()
-
-        if len(network_dimension) > 3 or len(transform_dimension) > 3:
-            raise ValueError("Dimension MisMatch Expected WxHxB")
-        if (
-            network_dimension[0] < transform_dimension[0]
-            or network_dimension[1] < transform_dimension[1]
-        ):
-            raise ValueError("Network Dimension Can't Be Less Than Transform Dimension")
-        self.transform_dimension = transform_dimension
-        self.network_dimension = network_dimension
-
-    def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
-
-    def _augment_batch_(self, batch, random_state, parents, hooks):
-        pass
-
-
-class MirrorFWD(TTFwdBkd):
+class MirrorFWD(meta.Augmenter):
     """
     Mirror the pixel to get to network_dimension
     """
 
     def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
+        super().__init__()
+        self.network_dimension = network_dimension
+        self.transform_dimension = transform_dimension
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
@@ -62,13 +43,15 @@ class MirrorFWD(TTFwdBkd):
         return batch
 
 
-class MirrorBKD(TTFwdBkd):
+class MirrorBKD(meta.Augmenter):
     """
     Remove the added pixel, Reverse of MirrorFWD
     """
 
     def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
+        super().__init__()
+        self.network_dimension = network_dimension
+        self.transform_dimension = transform_dimension
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
@@ -101,13 +84,14 @@ class MirrorBKD(TTFwdBkd):
         return batch
 
 
-class FlipLR(TTFwdBkd):
+class FlipLR(meta.Augmenter):
     """
     FLip an image
     """
 
     def __init__(self, transform_dimension: tuple):
-        super().__init__(transform_dimension, transform_dimension)
+        super().__init__()
+        self.transform_dimension = transform_dimension
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
@@ -118,13 +102,14 @@ class FlipLR(TTFwdBkd):
         return batch
 
 
-class FlipUD(TTFwdBkd):
+class FlipUD(meta.Augmenter):
     """
     Flip an image
     """
 
     def __init__(self, transform_dimension: tuple):
-        super().__init__(transform_dimension, transform_dimension)
+        super().__init__()
+        self.transform_dimension = transform_dimension
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
@@ -135,13 +120,14 @@ class FlipUD(TTFwdBkd):
         return batch
 
 
-class RotateFWD(TTFwdBkd):
+class RotateFWD(meta.Augmenter):
     """
     Rotate an image with angle
     """
 
     def __init__(self, angle: int, transform_dimension: tuple):
-        super().__init__(transform_dimension, transform_dimension)
+        super().__init__()
+        self.transform_dimension = transform_dimension
 
         self.transform = Rotate(rotate=angle)
 
@@ -152,13 +138,14 @@ class RotateFWD(TTFwdBkd):
         return [self.network_dimension, self.transform_dimension]
 
 
-class RotateBKD(TTFwdBkd):
+class RotateBKD(meta.Augmenter):
     """
     Rotate an image with -angle, Reverse the Rotate transformation
     """
 
     def __init__(self, angle: int, transform_dimension: tuple):
-        super().__init__(transform_dimension, transform_dimension)
+        super().__init__()
+        self.transform_dimension = transform_dimension
 
         self.transform = Rotate(rotate=-angle)
 
@@ -169,13 +156,15 @@ class RotateBKD(TTFwdBkd):
         return [self.network_dimension, self.transform_dimension]
 
 
-class ScaleFWD(TTFwdBkd):
+class ScaleFWD(meta.Augmenter):
     """
     Scale an image from transform_dimension to network_dimension
     """
 
     def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
+        super().__init__()
+        self.network_dimension = network_dimension
+        self.transform_dimension = transform_dimension
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
@@ -193,13 +182,15 @@ class ScaleFWD(TTFwdBkd):
         return batch
 
 
-class ScaleBKD(TTFwdBkd):
+class ScaleBKD(meta.Augmenter):
     """
     Scale an image from network_dimension to transform_dimension
     """
 
     def __init__(self, network_dimension: tuple, transform_dimension: tuple):
-        super().__init__(network_dimension, transform_dimension)
+        super().__init__()
+        self.network_dimension = network_dimension
+        self.transform_dimension = transform_dimension
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
@@ -214,4 +205,17 @@ class ScaleBKD(TTFwdBkd):
             )
             result.append(image_rs)
         batch.images = np.array(result, batch.images.dtype)
+        return batch
+
+
+class NoSegAug(meta.Augmenter):
+    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+        super().__init__()
+        self.network_dimension = network_dimension
+        self.transform_dimension = transform_dimension
+
+    def get_parameters(self):
+        return [self.network_dimension, self.transform_dimension]
+
+    def _augment_batch_(self, batch, random_state, parents, hooks):
         return batch
