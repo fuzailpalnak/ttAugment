@@ -34,11 +34,11 @@ class TTCustom:
     ):
 
         assert len(network_dimension) == 3, (
-            "Expected image to have shape (batch ,width, height, [channels]), "
+            "Expected image to have shape (width, height, [channels]), "
             "got shape %s." % (network_dimension,)
         )
         assert len(transform_dimension) == 3, (
-            "Expected image to have shape (batch ,width, height, [channels]), "
+            "Expected image to have shape (width, height, [channels]), "
             "got shape %s." % (transform_dimension,)
         )
 

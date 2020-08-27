@@ -14,12 +14,9 @@ from tt_augment.window import Window
 class Sibling:
     def __init__(self, transformer, window):
 
-        self.transformer = transformer
+        self._transformer = transformer
         self._window = window
         self._name = self.transformer.__class__.__name__
-
-        self._data_fwd = None
-        self._data_bkd = None
 
     @property
     def name(self):
@@ -30,20 +27,8 @@ class Sibling:
         return self._window
 
     @property
-    def data_fwd(self):
-        return self._data_fwd
-
-    @property
-    def data_bkd(self):
-        return self._data_bkd
-
-    @data_fwd.setter
-    def data_fwd(self, value):
-        self._data_fwd = value
-
-    @data_bkd.setter
-    def data_bkd(self, value):
-        self._data_bkd = value
+    def transformer(self):
+        return self._transformer
 
     def data(self, image: np.ndarray) -> np.ndarray:
         return image[
@@ -66,45 +51,55 @@ class Member(list):
             yield sibling
 
 
+class FamilyProgress:
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+
+
 class Family(list):
     def __init__(self):
         super().__init__()
 
-        self._tt_family = None
-        self._tt_member = None
+        self._tt_inferred_family = None
+        self._tt_inferred_member = None
 
         self._name = self.__class__.__name__
+        self.family_progress = FamilyProgress(**{"Family": self._name, "FamilyCount": "None",  "Sibling": "None",
+                           "Sibling_Progress": "None", "Infer": list()})
 
     @property
     def name(self):
         return self._name
 
     @property
-    def tt_family(self):
-        return self._tt_family
+    def tt_inferred_family(self):
+        return self._tt_inferred_family
 
-    @tt_family.setter
-    def tt_family(self, value):
-        self._tt_family = value
+    @tt_inferred_family.setter
+    def tt_inferred_family(self, value):
+        self._tt_inferred_family = value
 
     @property
-    def tt_member(self):
-        return self._tt_member
+    def tt_inferred_member(self):
+        return self._tt_inferred_member
 
-    @tt_member.setter
-    def tt_member(self, value):
-        self._tt_member = value
+    @tt_inferred_member.setter
+    def tt_inferred_member(self, value):
+        self._tt_inferred_member = value
 
     def add_member(self, member: Member):
         raise NotImplementedError
 
-    def tta(self, image: np.ndarray, arithmetic="mean"):
+    def add_inference(self, inferred_data, sibling):
         raise NotImplementedError
 
-    def tt_reverse(self, inferred_data, sibling):
+    def tt(self, image: np.ndarray, arithmetic_compute: str):
         raise NotImplementedError
 
-    def extend_tt_member(self, sibling):
+    def tt_fwd(self, image: np.ndarray, sibling: Sibling) -> np.ndarray:
+        raise NotImplementedError
+
+    def tt_bkd(self, inferred_data, sibling: Sibling):
         raise NotImplementedError
 
 
@@ -131,33 +126,23 @@ class Segmentation(Family, list):
         ), "Expected member to be Member, got types %s." % (type(member),)
         self.append(member)
 
-    def tta(self, image: np.ndarray, arithmetic_compute="mean"):
+    def tt_fwd(self, image: np.ndarray, sibling: Sibling) -> np.ndarray:
         _, w, h, c = image.shape
         assert image.ndim == 4, (
             "Expected image to have shape (batch ,width, height, [channels]), "
             "got shape %s." % (image.shape,)
         )
 
-        arithmetic_calculation = getattr(arithmetic_aggregate, arithmetic_compute)()
+        assert sibling.transformer.transform_dimension == (w, h, c), (
+            "Expected image to have shape (%s), "
+            "got shape %s." % (sibling.transformer.transform_dimension, (w, h, c),)
+        )
 
-        self.tt_family = np.zeros(image.shape)
+        return sibling.transformer.fwd(
+            images=image
+        )
 
-        for member_iterator, member in enumerate(self):
-            self.tt_member = np.zeros(image.shape)
-
-            for iterator, sibling in enumerate(member.get_sibling()):
-                sibling.data_fwd = sibling.transformer.fwd(
-                    images=sibling.data(image=image)
-                )
-                yield sibling
-                self.extend_tt_member(sibling)
-
-            self.tt_family = arithmetic_calculation.collect(
-                self.tt_family, self.tt_member
-            )
-        self.tt_family = arithmetic_calculation.aggregate(self.tt_family, len(self))
-
-    def tt_reverse(self, inferred_data: np.ndarray, sibling: Sibling):
+    def tt_bkd(self, inferred_data, sibling: Sibling):
         assert inferred_data.ndim == 4, (
             "Expected image to have shape (batch ,width, height, [channels]), "
             "got shape %s." % (inferred_data.shape,)
@@ -167,18 +152,51 @@ class Segmentation(Family, list):
             sibling, Sibling
         ), "Expected child to be Member, got types %s." % (str(type(sibling)))
 
-        sibling.data_bkd = sibling.transformer.segmentation_reverse(images=inferred_data)
+        return sibling.transformer.segmentation_reverse(images=inferred_data)
 
-    def extend_tt_member(self, sibling):
+    def tt(self, image: np.ndarray, arithmetic_compute="mean"):
+        _, w, h, c = image.shape
+        assert image.ndim == 4, (
+            "Expected image to have shape (batch ,width, height, [channels]), "
+            "got shape %s." % (image.shape,)
+        )
+
+        arithmetic_calculation = getattr(arithmetic_aggregate, arithmetic_compute)()
+        self.tt_inferred_family = np.zeros(image.shape)
+
+        for member_iterator, member in enumerate(self):
+            self.family_progress.FamilyCount = "{}/{}".format(member_iterator + 1, len(self))
+            Printer.print(self.family_progress.__dict__)
+
+            self.tt_inferred_member = np.zeros(image.shape)
+
+            for iterator, sibling in enumerate(member.get_sibling()):
+                self.family_progress.Sibling = sibling.name
+                self.family_progress.Sibling_Progress = "{}/{}".format(iterator + 1, len(member))
+                Printer.print(self.family_progress.__dict__)
+
+                yield sibling.data(image=image), sibling
+            infer_done = self.family_progress.Infer
+            infer_done.append(self.family_progress.Sibling)
+            self.family_progress.Infer = infer_done
+
+            Printer.print(self.family_progress.__dict__)
+
+            self.tt_inferred_family = arithmetic_calculation.collect(
+                self.tt_inferred_family, self.tt_inferred_member
+            )
+        self._tt_inferred_family = arithmetic_calculation.aggregate(self.tt_inferred_family, len(self))
+
+    def add_inference(self, inferred_data: np.ndarray, sibling: Sibling):
 
         part_1_x = sibling.window[0][0]
         part_1_y = sibling.window[0][1]
         part_2_x = sibling.window[1][0]
         part_2_y = sibling.window[1][1]
 
-        cropped_image = self.tt_member[:, part_1_x:part_1_y, part_2_x:part_2_y, :]
+        cropped_image = self.tt_inferred_member[:, part_1_x:part_1_y, part_2_x:part_2_y, :]
 
-        inferred_image = cropped_image + sibling.data_bkd
+        inferred_image = cropped_image + inferred_data
 
         if np.any(cropped_image):
             intersecting_inference_elements = np.zeros(cropped_image.shape)
@@ -193,7 +211,7 @@ class Segmentation(Family, list):
                 non_intersecting_inference_elements, inferred_image
             )
             inferred_image = aggregate_inference + non_intersected_inference
-        self.tt_member[:, part_1_x:part_1_y, part_2_x:part_2_y, :] = inferred_image
+        self.tt_inferred_member[:, part_1_x:part_1_y, part_2_x:part_2_y, :] = inferred_image
 
 
 class Classification(Family, list):
@@ -203,13 +221,16 @@ class Classification(Family, list):
     def add_member(self, member: Member):
         raise NotImplementedError
 
-    def tta(self, image: np.ndarray, arithmetic="mean"):
+    def add_inference(self, inferred_data, sibling: Sibling):
         raise NotImplementedError
 
-    def extend_tt_member(self, sibling):
-        raise NotImplementedError
+    def tt(self, image: np.ndarray, arithmetic_compute: str):
+        pass
 
-    def tt_reverse(self, inferred_data, sibling):
+    def tt_fwd(self, image: np.ndarray, sibling: Sibling) -> np.ndarray:
+        pass
+
+    def tt_bkd(self, inferred_data, sibling: Sibling):
         pass
 
 
