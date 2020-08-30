@@ -4,11 +4,12 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 install_requires = [
     "imgaug == 0.4.0",
+    "numpy == 1.19.1",
 ]
 
 setup(
     name="ttAugment",
-    version="0.2",
+    version="0.3",
     author="Fuzail Palnak",
     author_email="fuzailpalnak@gmail.com",
     description="Test Time Augmentations",
