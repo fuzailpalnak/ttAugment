@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 install_requires = [
     "imgaug == 0.4.0",
     "numpy == 1.19.1",
-    "fragment@ git+https://github.com://git@github.com/fuzailpalnak/fragment@v0.2#egg=fragment",
+    "fragment@git+https://github.com/fuzailpalnak/fragment/#egg=fragment",
 ]
 
 setup(
