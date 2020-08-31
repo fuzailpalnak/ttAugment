@@ -10,7 +10,7 @@ install_requires = [
 
 setup(
     name="ttAugment",
-    version="0.3",
+    version="0.3.2",
     author="Fuzail Palnak",
     author_email="fuzailpalnak@gmail.com",
     description="Test Time Augmentations",
