@@ -1,5 +1,6 @@
+from fragment.fragment import ImageFragment
+
 from tt_augment import tt_custom, arithmetic_aggregate
-from tt_augment.printer import Printer
 
 try:
     from collections.abc import Iterable
@@ -8,24 +9,48 @@ except ImportError:
 import numpy as np
 
 from tt_augment.tt_custom import custom, TTCustom
-from tt_augment.window import Window
+
+from sys import stdout
+
+
+class Printer:
+    @staticmethod
+    def print(data):
+        if type(data) == dict:
+            data = Printer.dict_to_string(data)
+        stdout.write("\r\033[1;37m>>\x1b[K" + data.__str__())
+        stdout.flush()
+
+    @staticmethod
+    def print_new_line(data):
+        stdout.write("\n")
+        stdout.write("\r\033[1;37m>>\x1b[K" + data.__str__())
+        stdout.flush()
+
+    @staticmethod
+    def dict_to_string(input_dict, separator=", "):
+        combined_list = list()
+        for key, value in input_dict.items():
+            individual = "{} : {}".format(key, value)
+            combined_list.append(individual)
+        return separator.join(combined_list)
 
 
 class TTInfo:
-    def __init__(self, transformer, window):
+    def __init__(self, transformer, fragment):
 
         self._transformer = transformer
-        self._window = window
         self._data = None
         self._name = self.transformer.__class__.__name__
+        self._fragment = fragment
+
+    @property
+    def fragment(self):
+        return self._fragment
 
     @property
     def name(self):
         return self._name
-
-    @property
-    def window(self):
-        return self._window
 
     @property
     def transformer(self):
@@ -40,12 +65,7 @@ class TTInfo:
         self._data = value
 
     def get_windowed_image(self, image: np.ndarray) -> np.ndarray:
-        return image[
-            :,
-            self.window[0][0] : self.window[0][1],
-            self.window[1][0] : self.window[1][1],
-            :,
-        ]
+        return self.fragment.get_fragment_data(image)
 
 
 class Member(list):
@@ -169,30 +189,8 @@ class Segmentation(Family):
         return tt_info
 
     def add_inference(self, tt_info: TTInfo):
-
-        part_1_x = tt_info.window[0][0]
-        part_1_y = tt_info.window[0][1]
-        part_2_x = tt_info.window[1][0]
-        part_2_y = tt_info.window[1][1]
-
-        cropped_image = self.tt_member_data[:, part_1_x:part_1_y, part_2_x:part_2_y, :]
-
-        inferred_image = cropped_image + tt_info.data
-
-        if np.any(cropped_image):
-            intersecting_inference_elements = np.zeros(cropped_image.shape)
-            intersecting_inference_elements[cropped_image > 0] = 1
-
-            non_intersecting_inference_elements = 1 - intersecting_inference_elements
-
-            intersected_inference = inferred_image * intersecting_inference_elements
-            aggregate_inference = intersected_inference / 2
-
-            non_intersected_inference = np.multiply(
-                non_intersecting_inference_elements, inferred_image
-            )
-            inferred_image = aggregate_inference + non_intersected_inference
-        self.tt_member_data[:, part_1_x:part_1_y, part_2_x:part_2_y, :] = inferred_image
+        self._tt_member_data = tt_info.fragment.transfer_fragment(transfer_from=tt_info.data,
+                                                                  transfer_to=self._tt_member_data)
 
 
 class Classification(Family):
@@ -245,13 +243,11 @@ def generate_family_members(image_dimension: tuple, transformers: list):
             raise ValueError(
                 "Transformation Dimension Can't be bigger that Image Dimension"
             )
-        window = Window.get_window(
-            window_size=transformer.transform_dimension,
-            org_size=image_dimension,
-        )
+        fragments = ImageFragment.get_image_fragment(fragment_size=transformer.transform_dimension ,
+                                                     org_size=image_dimension)
+        for fragment in fragments:
+            member.add_image_info(TTInfo(transformer=transformer, fragment=fragment))
 
-        for win_number, win in window:
-            member.add_image_info(TTInfo(transformer=transformer, window=win))
         family.append(member)
     return family
 
@@ -348,61 +344,3 @@ def classification(
     arithmetic_compute="mean",
 ):
     raise NotImplementedError
-
-
-from timeit import default_timer as timer
-
-import tifffile as tiff
-
-a = tiff.imread(r"D:\Cypherics\Library\test\10528705_15.tiff")
-b = tiff.imread(r"D:\Cypherics\Library\test\10078735_15.tiff")
-
-d = [a, b]
-# for i in range(32):
-#     d.append(a)
-d = np.array(d)
-import time
-
-now = time.time()
-
-tta = segmentation_color(
-    image_dimension=(1500, 1500, 3),
-    batch_size=2,
-    transformers=[
-        {
-            "name": "Rot",
-            "param": {"angle": 90},
-            "transform_dimension": (384, 384, 3),
-            "network_dimension": (384, 384, 3),
-        },
-        {
-            "name": "GaussianBlur",
-            "param": {},
-            "transform_dimension": (384, 384, 3),
-            "network_dimension": (384, 384, 3),
-        },
-    ],
-)
-end_time = time.time()
-
-print("total time taken by Initalization: ", end_time - now)
-import cv2
-
-# images = np.array(
-#     [ia.quokka(size=(512, 512)) for _ in range(2)],
-#     dtype=np.uint8
-# )
-# d1 = Fliplr(1)
-# f = d1(images=images)
-import time
-
-now = time.time()
-
-for tt_info1 in tta.tt(d):
-    ff_image = tta.tt_fwd(tt_info1)
-    tta.add_inference(tta.tt_bkd(ff_image, tt_info1))
-end_time = time.time()
-
-print("total time taken by collate batch: ", end_time - now)
-for j in range(2):
-    cv2.imwrite("g_{}.png".format(j), tta.tt_family_data[j])
