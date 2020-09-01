@@ -1,6 +1,6 @@
-from fragment.fragment import ImageFragment
+from dataclasses import dataclass
 
-from tt_augment import tt_custom, arithmetic_aggregate
+from fragment.fragment import ImageFragment
 
 try:
     from collections.abc import Iterable
@@ -11,6 +11,17 @@ import numpy as np
 from tt_augment.tt_custom import custom, TTCustom
 
 from sys import stdout
+
+
+@dataclass
+class FragmentTransformerCollect:
+    name: str
+    collection: list
+
+
+class Progress:
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
 
 
 class Printer:
@@ -36,7 +47,17 @@ class Printer:
         return separator.join(combined_list)
 
 
-class TTInfo:
+class Mean:
+    @staticmethod
+    def collect(x, y):
+        return x + y
+
+    @staticmethod
+    def aggregate(x, count):
+        return x / count
+
+
+class Transformer:
     def __init__(self, transformer, fragment):
 
         self._transformer = transformer
@@ -68,187 +89,183 @@ class TTInfo:
         return self.fragment.get_fragment_data(image)
 
 
-class Member(list):
-    def __init__(self):
-        super().__init__()
-
-    def add_image_info(self, tt_info: TTInfo):
-        self.append(tt_info)
-
-    def get_image_info(self):
-        for tt_info in self:
-            yield tt_info
-
-
-class FamilyProgress:
-    def __init__(self, **entries):
-        self.__dict__.update(entries)
-
-
-class Family(list):
-    def __init__(self, members: list, family_data, member_data, arithmetic_calculation):
-        super().__init__()
-        self.members = members
-        self.arithmetic_calculation = arithmetic_calculation
-
-        self._tt_family_data = family_data
-        self._tt_member_data = member_data
-
-        self._name = self.__class__.__name__
-        self.family_progress = FamilyProgress(
+class TransformationType:
+    def __init__(self, apply_per_image, inference):
+        self.apply_per_image = apply_per_image
+        self.inference = inference
+        self.progress = Progress(
             **{
-                "Family": self._name,
-                "FamilyCount": "None",
-                "Sibling": "None",
-                "Sibling_Progress": "None",
+                "Name": self.__class__.__name__,
+                "Transformation_Count": "None",
+                "Transformer": "None",
+                "Fragment_Transformer_Progress": "None",
             }
         )
 
-    @property
-    def name(self):
-        return self._name
+    @classmethod
+    def populate(cls, image_dimension: tuple, transformers: list, **kwargs):
+        pass
 
-    @property
-    def tt_family_data(self):
-        return self._tt_family_data
-
-    @tt_family_data.setter
-    def tt_family_data(self, value):
-        self._tt_family_data = value
-
-    @property
-    def tt_member_data(self):
-        return self._tt_member_data
-
-    @tt_member_data.setter
-    def tt_member_data(self, value):
-        self._tt_member_data = value
-
-    def add_inference(self, tt_info: TTInfo):
+    def run(self, image: np.ndarray):
         raise NotImplementedError
 
-    def tt(self, image: np.ndarray):
+    def forward(self, transformer: Transformer, image: np.ndarray):
+        raise NotImplementedError
+
+    def reverse(self, transformer: Transformer, inferred_data):
+        raise NotImplementedError
+
+    def update(self, transformer: Transformer, reversed_data):
+        raise NotImplementedError
+
+    def reset(self):
+        raise NotImplementedError
+
+    @staticmethod
+    def generate_transformers(
+        image_dimension: tuple, transformers: list, inference: tuple
+    ):
+        assert len(image_dimension) == 4, (
+            "Expected image to have shape (batch, height, width, [channels]), "
+            "got shape %s." % (image_dimension,)
+        )
+
+        apply_per_image = list()
+        for individual_transformer in transformers:
+            assert list(individual_transformer.keys()) == [
+                "name",
+                "param",
+                "transform_dimension",
+                "network_dimension",
+            ], "Expected Keys ['name', 'param', 'transform_dimension', 'network_dimension'], "
+
+            transformer_name, transformer_param = (
+                individual_transformer["name"],
+                individual_transformer["param"],
+            )
+            transform_dimension = individual_transformer["transform_dimension"]
+            network_dimension = individual_transformer["network_dimension"]
+
+            transformer = look_up(
+                transformer_name,
+                transform_dimension,
+                network_dimension,
+                **transformer_param
+            )
+            if transformer.transform_dimension > image_dimension:
+                raise ValueError(
+                    "Transformation Dimension Can't be bigger that Image Dimension"
+                )
+            fragments = ImageFragment.image_fragment_4d(
+                fragment_size=transformer.transform_dimension, org_size=image_dimension
+            )
+            apply_per_fragment = list()
+            for fragment in fragments:
+                apply_per_fragment.append(
+                    Transformer(transformer=transformer, fragment=fragment)
+                )
+            apply_per_image.append(
+                FragmentTransformerCollect(
+                    name=transformer_name, collection=apply_per_fragment
+                )
+            )
+        return apply_per_image
+
+
+class Segmentation(TransformationType):
+    def __init__(self, apply_per_image, inference):
+        super().__init__(apply_per_image, inference)
+        self.fragment_inference = None
+
+    def run(self, image: np.ndarray):
         _, w, h, c = image.shape
         assert image.ndim == 4, (
-            "Expected image to have shape (batch ,width, height, [channels]), "
+            "Expected image to have shape (batch ,height, width, [channels]), "
             "got shape %s." % (image.shape,)
         )
-
-        for member_iterator, member in enumerate(self.members):
-            self.family_progress.FamilyCount = "{}/{}".format(
-                member_iterator + 1, len(self.members)
+        self.reset()
+        for iterator, fragment_transformation in enumerate(self.apply_per_image):
+            self.progress.Transformation_Count = "{}/{}".format(
+                iterator + 1, len(self.apply_per_image)
             )
-            Printer.print(self.family_progress.__dict__)
-
-            for iterator, tt_info in enumerate(member.get_image_info()):
-                self.family_progress.Sibling = tt_info.name
-                self.family_progress.Sibling_Progress = "{}/{}".format(
-                    iterator + 1, len(member)
+            for transformer_iterator, transformer in enumerate(
+                fragment_transformation.collection
+            ):
+                self.progress.Transformer = "{}".format(fragment_transformation.name)
+                self.progress.Fragment_Transformer_Progress = "{}/{}".format(
+                    transformer_iterator + 1, len(fragment_transformation.collection)
                 )
-                Printer.print(self.family_progress.__dict__)
-                tt_info.data = tt_info.get_windowed_image(image=image)
-                yield tt_info
-            Printer.print(self.family_progress.__dict__)
 
-            self.tt_family_data = self.arithmetic_calculation.collect(
-                self.tt_family_data, self.tt_member_data
-            )
-        self.tt_family_data = self.arithmetic_calculation.aggregate(
-            self.tt_family_data, len(self.members)
+                transformer.data = transformer.get_windowed_image(image=image)
+                Printer.print(self.progress.__dict__)
+
+                yield transformer
+            self.inference = Mean.collect(self.inference, self.fragment_inference)
+        self.inference = Mean.aggregate(self.inference, len(self.apply_per_image))
+
+    def forward(self, transformer: Transformer, image: np.ndarray):
+        return transformer.transformer.fwd(
+            images=transformer.get_windowed_image(image=image)
         )
 
-    def tt_fwd(self, tt_info: TTInfo) -> np.ndarray:
-        return tt_info.transformer.fwd(images=tt_info.data)
-
-    def tt_bkd(self, inferred_data, tt_info: TTInfo) -> TTInfo:
-        raise NotImplementedError
-
-
-class Segmentation(Family):
-    def __init__(
-        self,
-        members: list,
-        family_data: np.ndarray,
-        member_data: np.ndarray,
-        arithmetic_calculation,
-    ):
-        super().__init__(members, family_data, member_data, arithmetic_calculation)
-
-    def tt_bkd(self, inferred_data, tt_info: TTInfo) -> TTInfo:
+    def reverse(self, transformer: Transformer, inferred_data: np.ndarray):
         assert inferred_data.ndim == 4, (
-            "Expected image to have shape (batch ,width, height, [channels]), "
+            "Expected image to have shape (batch ,height, width, [channels]), "
             "got shape %s." % (inferred_data.shape,)
         )
 
         assert isinstance(
-            tt_info, TTInfo
-        ), "Expected child to be Member, got types %s." % (str(type(tt_info)))
+            transformer, Transformer
+        ), "Expected child to be Transformer, got types %s." % (str(type(transformer)))
 
-        tt_info.data = tt_info.transformer.segmentation_reverse(images=inferred_data)
-        return tt_info
+        return transformer.transformer.segmentation_reverse(images=inferred_data)
 
-    def add_inference(self, tt_info: TTInfo):
-        self._tt_member_data = tt_info.fragment.transfer_fragment(
-            transfer_from=tt_info.data, transfer_to=self._tt_member_data
+    def update(self, transformer: Transformer, reversed_data: np.ndarray):
+        assert reversed_data.ndim == 4, (
+            "Expected image to have shape (batch ,height, width, [channels]), "
+            "got shape %s." % (reversed_data.shape,)
+        )
+        self.fragment_inference = transformer.fragment.transfer_fragment(
+            transfer_from=reversed_data, transfer_to=self.fragment_inference
         )
 
+    def reset(self):
+        self.inference = np.zeros(self.inference.shape)
+        self.fragment_inference = np.zeros(self.inference.shape)
 
-class Classification(Family):
-    def __init__(self, members, family_data, member_data, arithmetic_calculation):
-        super().__init__(members, family_data, member_data, arithmetic_calculation)
-
-    def add_inference(self, tt_info: TTInfo):
-        raise NotImplementedError
-
-    def tt_fwd(self, tt_info: TTInfo) -> np.ndarray:
-        pass
-
-    def tt_bkd(self, inferred_data, tt_info: TTInfo):
-        pass
-
-
-def generate_family_members(image_dimension: tuple, transformers: list):
-    assert len(image_dimension) == 4, (
-        "Expected image to have shape (batch, height, width, [channels]), "
-        "got shape %s." % (image_dimension,)
-    )
-
-    family = list()
-
-    for individual_transformer in transformers:
-        member = Member()
-
-        assert list(individual_transformer.keys()) == [
-            "name",
-            "param",
-            "transform_dimension",
-            "network_dimension",
-        ], "Expected Keys ['name', 'param', 'transform_dimension', 'network_dimension'], "
-
-        transformer_name, transformer_param = (
-            individual_transformer["name"],
-            individual_transformer["param"],
+    @classmethod
+    def populate(cls, image_dimension: tuple, transformers: list, **kwargs):
+        inference = kwargs["inference"]
+        apply_per_image = cls.generate_transformers(
+            image_dimension, transformers, inference
         )
-        transform_dimension = individual_transformer["transform_dimension"]
-        network_dimension = individual_transformer["network_dimension"]
+        return cls(apply_per_image, inference)
 
-        transformer = look_up(
-            transformer_name,
-            transform_dimension,
-            network_dimension,
-            **transformer_param
+    @classmethod
+    def populate_binary(cls, image_dimension: tuple, transformers: list):
+        assert len(image_dimension) == 4, (
+            "Expected image to have shape (batch, height, width, [channels]), "
+            "got shape %s." % (image_dimension,)
         )
-        if transformer.transform_dimension > image_dimension:
-            raise ValueError(
-                "Transformation Dimension Can't be bigger that Image Dimension"
-            )
-        fragments = ImageFragment.image_fragment_4d(
-            fragment_size=transformer.transform_dimension, org_size=image_dimension
+
+        batch, h, w, _ = image_dimension
+
+        return cls.populate(
+            image_dimension, transformers, inference=np.zeros((batch, h, w, 1))
         )
-        for fragment in fragments:
-            member.add_image_info(TTInfo(transformer=transformer, fragment=fragment))
-        family.append(member)
-    return family
+
+    @classmethod
+    def populate_color(cls, image_dimension: tuple, transformers: list):
+        assert len(image_dimension) == 4, (
+            "Expected image to have shape (batch, height, width, [channels]), "
+            "got shape %s." % (image_dimension,)
+        )
+
+        batch, h, w, _ = image_dimension
+
+        return cls.populate(
+            image_dimension, transformers, inference=np.zeros((batch, h, w, 3))
+        )
 
 
 def look_up(
@@ -276,73 +293,3 @@ def look_up(
         )
     else:
         raise Exception("UnSupported Transformer %s." % (transformer_name,))
-
-
-def segmentation_binary(
-    image_dimension: tuple,
-    transformers: list,
-    arithmetic_compute="mean",
-):
-    assert len(image_dimension) == 4, (
-        "Expected image to have shape (batch, height, width, [channels]), "
-        "got shape %s." % (image_dimension,)
-    )
-
-    assert arithmetic_compute in [
-        "mean",
-        "geometric_mean",
-    ], "Expected values ['mean', 'geometric_mean'], " "got %s." % (arithmetic_compute,)
-    batch, h, w, _ = image_dimension
-
-    if arithmetic_compute == "mean":
-        inference_data = np.zeros((batch, h, w, 1))
-    else:
-        inference_data = np.ones((batch, h, w, 1))
-    arithmetic_calculation = getattr(arithmetic_aggregate, arithmetic_compute)()
-    family_members = generate_family_members(image_dimension, transformers)
-    return Segmentation(
-        members=family_members,
-        family_data=inference_data,
-        member_data=np.zeros(inference_data.shape),
-        arithmetic_calculation=arithmetic_calculation,
-    )
-
-
-def segmentation_color(
-    image_dimension: tuple,
-    transformers: list,
-    arithmetic_compute="mean",
-):
-    assert (
-        len(image_dimension) == 4
-    ), "Expected image to have shape (height, width, [channels]), " "got shape %s." % (
-        image_dimension,
-    )
-
-    assert arithmetic_compute in [
-        "mean",
-        "geometric_mean",
-    ], "Expected values ['mean', 'geometric_mean'], " "got %s." % (arithmetic_compute,)
-    batch, h, w, _ = image_dimension
-
-    if arithmetic_compute == "mean":
-        inference_data = np.zeros((batch, h, w, 3))
-    else:
-        inference_data = np.ones((batch, h, w, 3))
-    arithmetic_calculation = getattr(arithmetic_aggregate, arithmetic_compute)()
-    family_members = generate_family_members(image_dimension, transformers)
-    return Segmentation(
-        members=family_members,
-        family_data=inference_data,
-        member_data=np.zeros(inference_data.shape),
-        arithmetic_calculation=arithmetic_calculation,
-    )
-
-
-def classification(
-    image_dimension: tuple,
-    batch_size: int,
-    transformers: list,
-    arithmetic_compute="mean",
-):
-    raise NotImplementedError
