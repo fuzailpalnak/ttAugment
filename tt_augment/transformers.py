@@ -51,16 +51,6 @@ class Printer:
         return separator.join(combined_list)
 
 
-class Mean:
-    @staticmethod
-    def collect(x, y):
-        return x + y
-
-    @staticmethod
-    def aggregate(x, count):
-        return x / count
-
-
 class InferenceStore:
     def __init__(self, count: int, merge_type="mean"):
         self.merge_type = merge_type
