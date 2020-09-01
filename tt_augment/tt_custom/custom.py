@@ -158,6 +158,12 @@ class CropScale(TTCustom):
 
 class NoAugment(TTCustom):
     def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+        assert network_dimension == transform_dimension, (
+            "While Using NoAugment Transformation ",
+            "Expected [network_dimension] and [transform_dimension] to be equal",
+            "got %s and %s",
+            (transform_dimension, network_dimension),
+        )
         super().__init__(
             network_dimension=network_dimension, transform_dimension=transform_dimension
         )
@@ -199,6 +205,12 @@ class Rot(TTCustom):
     def __init__(
         self, transform_dimension: tuple, network_dimension: tuple, angle: int
     ):
+        assert network_dimension == transform_dimension, (
+            "While Using Geometric Transformation ",
+            "Expected [network_dimension] and [transform_dimension] to be equal",
+            "got %s and %s",
+            (transform_dimension, network_dimension),
+        )
         super().__init__(
             network_dimension=network_dimension, transform_dimension=transform_dimension
         )
@@ -233,6 +245,12 @@ class FlipHorizontal(TTCustom):
     """
 
     def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+        assert network_dimension == transform_dimension, (
+            "While Using Geometric Transformation ",
+            "Expected [network_dimension] and [transform_dimension] to be equal",
+            "got %s and %s",
+            (transform_dimension, network_dimension),
+        )
         super().__init__(
             network_dimension=network_dimension, transform_dimension=transform_dimension
         )
@@ -260,6 +278,12 @@ class FlipVertical(TTCustom):
     """
 
     def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+        assert network_dimension == transform_dimension, (
+            "While Using Geometric Transformation ",
+            "Expected [network_dimension] and [transform_dimension] to be equal",
+            "got %s and %s",
+            (transform_dimension, network_dimension),
+        )
         super().__init__(
             network_dimension=network_dimension, transform_dimension=transform_dimension
         )
