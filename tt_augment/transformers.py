@@ -62,7 +62,6 @@ class Transformer:
     def __init__(self, transformer, fragment):
 
         self._transformer = transformer
-        self._data = None
         self._name = self.transformer.__class__.__name__
         self._fragment = fragment
 
@@ -77,14 +76,6 @@ class Transformer:
     @property
     def transformer(self):
         return self._transformer
-
-    @property
-    def data(self):
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = value
 
     def get_windowed_image(self, image: np.ndarray) -> np.ndarray:
         return self.fragment.get_fragment_data(image)
@@ -107,7 +98,7 @@ class TransformationType:
     def populate(cls, image_dimension: tuple, transformers: list, **kwargs):
         pass
 
-    def run(self, image: np.ndarray):
+    def run(self):
         raise NotImplementedError
 
     def forward(self, transformer: Transformer, image: np.ndarray):
@@ -178,12 +169,7 @@ class Segmentation(TransformationType):
         super().__init__(apply_per_image, inference)
         self.fragment_inference = None
 
-    def run(self, image: np.ndarray):
-        _, w, h, c = image.shape
-        assert image.ndim == 4, (
-            "Expected image to have shape (batch ,height, width, [channels]), "
-            "got shape %s." % (image.shape,)
-        )
+    def run(self):
         self.reset()
         for iterator, fragment_transformation in enumerate(self.apply_per_image):
             self.progress.Transformation_Count = "{}/{}".format(
@@ -197,7 +183,6 @@ class Segmentation(TransformationType):
                     transformer_iterator + 1, len(fragment_transformation.collection)
                 )
 
-                transformer.data = transformer.get_windowed_image(image=image)
                 Printer.print(self.progress.__dict__)
 
                 yield transformer
