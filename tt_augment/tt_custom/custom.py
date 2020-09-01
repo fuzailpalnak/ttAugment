@@ -33,24 +33,26 @@ class TTCustom:
         transform_dimension=None,
     ):
 
-        assert len(network_dimension) == 3, (
-            "Expected image to have shape (width, height, [channels]), "
+        assert len(network_dimension) == 4, (
+            "Expected image to have shape (batch, height, height, [channels]), "
             "got shape %s." % (network_dimension,)
         )
-        assert len(transform_dimension) == 3, (
-            "Expected image to have shape (width, height, [channels]), "
+        assert len(transform_dimension) == 4, (
+            "Expected image to have shape (batch, height, height, [channels]), "
             "got shape %s." % (transform_dimension,)
         )
 
         if fwd is not None:
-            assert isinstance(fwd, meta.Augmenter), (
-                "Expected to have fwd of type [meta.Augmenter], "
-                "but received %s." % (type(fwd),)
+            assert isinstance(
+                fwd, meta.Augmenter
+            ), "Expected to have fwd of type [meta.Augmenter], " "but received %s." % (
+                type(fwd),
             )
         if segmentation_reverse is not None:
-            assert isinstance(segmentation_reverse, meta.Augmenter), (
-                "Expected to have fwd of type [meta.Augmenter], "
-                "but received %s." % (type(segmentation_reverse),)
+            assert isinstance(
+                segmentation_reverse, meta.Augmenter
+            ), "Expected to have fwd of type [meta.Augmenter], " "but received %s." % (
+                type(segmentation_reverse),
             )
         if network_dimension < transform_dimension:
             raise ValueError("Network Dimension Can't Be Less Than Transform Dimension")
@@ -60,7 +62,9 @@ class TTCustom:
         self._fwd = fwd
 
         if segmentation_reverse is None:
-            self._segmentation_reverse = NoSegAug(self.network_dimension, self.transform_dimension)
+            self._segmentation_reverse = NoSegAug(
+                self.network_dimension, self.transform_dimension
+            )
         else:
             self._segmentation_reverse = segmentation_reverse
         self._classification_reverse = classification_reverse
@@ -199,10 +203,15 @@ class Rot(TTCustom):
             network_dimension=network_dimension, transform_dimension=transform_dimension
         )
 
-        self.angle = angle
+        angle_axis = [0, 90, 180, 270]
+        assert angle in angle_axis, (
+            "Expected angle to be [0,  90, 180, 270]",
+            "given %s",
+            (angle,),
+        )
 
-        self._fwd = RotateFWD(self.angle, self.transform_dimension)
-        self._seg = RotateBKD(self.angle, self.transform_dimension)
+        self._fwd = RotateFWD(angle_axis.index(angle), self.transform_dimension)
+        self._seg = RotateBKD(angle_axis.index(angle), self.transform_dimension)
         self._classification = None
 
     @property

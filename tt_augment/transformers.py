@@ -148,7 +148,6 @@ class Family(list):
                 Printer.print(self.family_progress.__dict__)
                 tt_info.data = tt_info.get_windowed_image(image=image)
                 yield tt_info
-
             Printer.print(self.family_progress.__dict__)
 
             self.tt_family_data = self.arithmetic_calculation.collect(
@@ -189,8 +188,9 @@ class Segmentation(Family):
         return tt_info
 
     def add_inference(self, tt_info: TTInfo):
-        self._tt_member_data = tt_info.fragment.transfer_fragment(transfer_from=tt_info.data,
-                                                                  transfer_to=self._tt_member_data)
+        self._tt_member_data = tt_info.fragment.transfer_fragment(
+            transfer_from=tt_info.data, transfer_to=self._tt_member_data
+        )
 
 
 class Classification(Family):
@@ -208,10 +208,9 @@ class Classification(Family):
 
 
 def generate_family_members(image_dimension: tuple, transformers: list):
-    assert (
-        len(image_dimension) == 3
-    ), "Expected image to have shape (width, height, [channels]), " "got shape %s." % (
-        image_dimension,
+    assert len(image_dimension) == 4, (
+        "Expected image to have shape (batch, height, width, [channels]), "
+        "got shape %s." % (image_dimension,)
     )
 
     family = list()
@@ -243,11 +242,11 @@ def generate_family_members(image_dimension: tuple, transformers: list):
             raise ValueError(
                 "Transformation Dimension Can't be bigger that Image Dimension"
             )
-        fragments = ImageFragment.get_image_fragment(fragment_size=transformer.transform_dimension ,
-                                                     org_size=image_dimension)
+        fragments = ImageFragment.image_fragment_4d(
+            fragment_size=transformer.transform_dimension, org_size=image_dimension
+        )
         for fragment in fragments:
             member.add_image_info(TTInfo(transformer=transformer, fragment=fragment))
-
         family.append(member)
     return family
 
@@ -263,6 +262,12 @@ def look_up(
         )
         return custom_aug
     elif hasattr(tt_custom, transformer_name):
+        assert network_dimension == transform_dimension, (
+            "While Using External Color Augmentation ",
+            "Expected [network_dimension] and [transform_dimension] to be equal",
+            "got %s and %s",
+            (transform_dimension, network_dimension),
+        )
         custom_aug = getattr(tt_custom, transformer_name)(**transformer_param)
         return TTCustom(
             fwd=custom_aug,
@@ -275,26 +280,24 @@ def look_up(
 
 def segmentation_binary(
     image_dimension: tuple,
-    batch_size: int,
     transformers: list,
     arithmetic_compute="mean",
 ):
-    assert (
-        len(image_dimension) == 3
-    ), "Expected image to have shape (width, height, [channels]), " "got shape %s." % (
-        image_dimension,
+    assert len(image_dimension) == 4, (
+        "Expected image to have shape (batch, height, width, [channels]), "
+        "got shape %s." % (image_dimension,)
     )
 
     assert arithmetic_compute in [
         "mean",
         "geometric_mean",
     ], "Expected values ['mean', 'geometric_mean'], " "got %s." % (arithmetic_compute,)
-    w, h, _ = image_dimension
+    batch, h, w, _ = image_dimension
 
     if arithmetic_compute == "mean":
-        inference_data = np.zeros((batch_size, w, h, 1))
+        inference_data = np.zeros((batch, h, w, 1))
     else:
-        inference_data = np.ones((batch_size, w, h, 1))
+        inference_data = np.ones((batch, h, w, 1))
     arithmetic_calculation = getattr(arithmetic_aggregate, arithmetic_compute)()
     family_members = generate_family_members(image_dimension, transformers)
     return Segmentation(
@@ -307,13 +310,12 @@ def segmentation_binary(
 
 def segmentation_color(
     image_dimension: tuple,
-    batch_size: int,
     transformers: list,
     arithmetic_compute="mean",
 ):
     assert (
-        len(image_dimension) == 3
-    ), "Expected image to have shape (width, height, [channels]), " "got shape %s." % (
+        len(image_dimension) == 4
+    ), "Expected image to have shape (height, width, [channels]), " "got shape %s." % (
         image_dimension,
     )
 
@@ -321,12 +323,12 @@ def segmentation_color(
         "mean",
         "geometric_mean",
     ], "Expected values ['mean', 'geometric_mean'], " "got %s." % (arithmetic_compute,)
-    w, h, _ = image_dimension
+    batch, h, w, _ = image_dimension
 
     if arithmetic_compute == "mean":
-        inference_data = np.zeros((batch_size, w, h, 3))
+        inference_data = np.zeros((batch, h, w, 3))
     else:
-        inference_data = np.ones((batch_size, w, h, 3))
+        inference_data = np.ones((batch, h, w, 3))
     arithmetic_calculation = getattr(arithmetic_aggregate, arithmetic_compute)()
     family_members = generate_family_members(image_dimension, transformers)
     return Segmentation(

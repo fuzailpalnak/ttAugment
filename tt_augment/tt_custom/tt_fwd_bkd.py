@@ -27,7 +27,7 @@ class MirrorFWD(meta.Augmenter):
         for i in sm.xrange(nb_images):
             img = images[i]
 
-            limit_w = (self.network_dimension[0] - self.transform_dimension[0]) // 2
+            limit_w = (self.network_dimension[2] - self.transform_dimension[2]) // 2
 
             limit_h = (self.network_dimension[1] - self.transform_dimension[1]) // 2
             img = cv2.copyMakeBorder(
@@ -61,10 +61,10 @@ class MirrorBKD(meta.Augmenter):
         nb_images = len(images)
         result = []
 
-        image_width, image_height = self.network_dimension[0], self.network_dimension[1]
+        image_width, image_height = self.network_dimension[2], self.network_dimension[1]
 
         crop_width, crop_height = (
-            self.transform_dimension[0],
+            self.transform_dimension[2],
             self.transform_dimension[1],
         )
 
@@ -125,14 +125,18 @@ class RotateFWD(meta.Augmenter):
     Rotate an image with angle
     """
 
-    def __init__(self, angle: int, transform_dimension: tuple):
+    def __init__(self, angle_axis: int, transform_dimension: tuple):
         super().__init__()
         self.transform_dimension = transform_dimension
+        self.angle_axis = angle_axis
 
-        self.transform = Rotate(rotate=angle)
-
-    def __call__(self, images):
-        return self.transform.augment(images=images)
+    def _augment_batch_(self, batch, random_state, parents, hooks):
+        result = list()
+        for i, images in enumerate(batch.images):
+            image_rs = np.rot90(images, self.angle_axis)
+            result.append(image_rs)
+        batch.images = np.array(result, batch.images.dtype)
+        return batch
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
@@ -143,17 +147,21 @@ class RotateBKD(meta.Augmenter):
     Rotate an image with -angle, Reverse the Rotate transformation
     """
 
-    def __init__(self, angle: int, transform_dimension: tuple):
+    def __init__(self, angle_axis: int, transform_dimension: tuple):
         super().__init__()
         self.transform_dimension = transform_dimension
-
-        self.transform = Rotate(rotate=-angle)
-
-    def __call__(self, images):
-        return self.transform.augment(images=images)
+        self.angle_axis = angle_axis
 
     def get_parameters(self):
         return [self.network_dimension, self.transform_dimension]
+
+    def _augment_batch_(self, batch, random_state, parents, hooks):
+        result = list()
+        for i, images in enumerate(batch.images):
+            image_rs = np.rot90(images, -self.angle_axis)
+            result.append(image_rs)
+        batch.images = np.array(result, batch.images.dtype)
+        return batch
 
 
 class ScaleFWD(meta.Augmenter):
@@ -174,7 +182,7 @@ class ScaleFWD(meta.Augmenter):
         for i, images in enumerate(batch.images):
             image_rs = imresize_single_image(
                 images,
-                (self.network_dimension[1], self.network_dimension[0]),
+                (self.network_dimension[1], self.network_dimension[2]),
                 interpolation="nearest",
             )
             result.append(image_rs)
@@ -200,7 +208,7 @@ class ScaleBKD(meta.Augmenter):
         for i, images in enumerate(batch.images):
             image_rs = imresize_single_image(
                 images,
-                (self.transform_dimension[1], self.transform_dimension[0]),
+                (self.transform_dimension[1], self.transform_dimension[2]),
                 interpolation="nearest",
             )
             result.append(image_rs)
