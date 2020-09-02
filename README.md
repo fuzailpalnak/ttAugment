@@ -12,7 +12,7 @@ final output
 
 
 ## Supported Augmentation
-Library supports all [color]((https://imgaug.readthedocs.io/en/latest/source/api_augmenters_color.html)), 
+Library supports all [color](https://imgaug.readthedocs.io/en/latest/source/api_augmenters_color.html), 
 [blur](https://imgaug.readthedocs.io/en/latest/source/api_augmenters_blur.html) and [contrast](https://imgaug.readthedocs.io/en/latest/source/api_augmenters_contrast.html)
 transformation provided by [imgaug](https://imgaug.readthedocs.io/en/latest/) along with custom Geometric Transformation.
 
