@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from imgaug import imresize_single_image
 
-from imgaug.augmenters import Rotate, sm, meta
+from imgaug.augmenters import sm, meta
 from imgaug.augmenters.flip import fliplr
 
 

@@ -195,19 +195,22 @@ class TransformationType:
         )
         transformations = TransformationsPerRun()
         for individual_transformer in transformers:
-            assert list(individual_transformer.keys()) == [
-                "name",
-                "param",
-                "transform_dimension",
-                "network_dimension",
-            ], "Expected Keys ['name', 'param', 'transform_dimension', 'network_dimension'], "
+            transformer_name = individual_transformer["name"]
 
-            transformer_name, transformer_param = (
-                individual_transformer["name"],
-                individual_transformer["param"],
-            )
-            transform_dimension = individual_transformer["transform_dimension"]
-            network_dimension = individual_transformer["network_dimension"]
+            if "transform_dimension" not in list(individual_transformer.keys()):
+                transform_dimension = image_dimension
+            else:
+                transform_dimension = individual_transformer["transform_dimension"]
+
+            if "param" not in list(individual_transformer.keys()):
+                transformer_param = {}
+            else:
+                transformer_param = individual_transformer["param"]
+
+            if "network_dimension" not in list(individual_transformer.keys()):
+                network_dimension = transform_dimension
+            else:
+                network_dimension = individual_transformer["network_dimension"]
 
             transformer = look_up(
                 transformer_name,
@@ -329,7 +332,7 @@ def look_up(
         custom_aug = getattr(tt_custom, transformer_name)(**transformer_param)
         return TTCustom(
             fwd=custom_aug,
-            network_dimension=network_dimension,
+            network_dimension=transform_dimension,
             transform_dimension=transform_dimension,
         )
     else:
