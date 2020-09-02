@@ -72,7 +72,7 @@ for inference and apply transformation over it
     
 If the test image has the same dimension to what the network expects, in that case just remove the `transform_dimension` param.
 
-## Using is during Inference
+## Inference
 
 ##### Define tta object
 ```python
