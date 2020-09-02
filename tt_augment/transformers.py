@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
 
 from tt_augment import tt_custom
 
@@ -17,10 +16,10 @@ from sys import stdout
 
 
 @dataclass
-class FragmentTransformerCollect:
+class TransformationOnImage:
     name: str
     collection: list
-    inference_blue_print: tuple
+    blue_print: tuple
 
 
 class Progress:
@@ -49,6 +48,53 @@ class Printer:
             individual = "{} : {}".format(key, value)
             combined_list.append(individual)
         return separator.join(combined_list)
+
+
+class TransformationsPerRun(list):
+    def __init__(self, merge_transformations="mean", transformation_on_image=None):
+        if transformation_on_image is None:
+            list.__init__(self, [])
+        elif isinstance(transformation_on_image, TransformationOnImage):
+            list.__init__(self, [transformation_on_image])
+        elif isinstance(transformation_on_image, Iterable):
+            assert all(
+                [
+                    isinstance(per_image, TransformationOnImage)
+                    for per_image in transformation_on_image
+                ]
+            ), (
+                "Expected all children to be FragmentTransformationPerImage, got types %s."
+                % (", ".join([str(type(v)) for v in transformation_on_image]))
+            )
+            list.__init__(self, transformation_on_image)
+        else:
+            raise Exception(
+                "Expected None or FragmentTransformationPerImage or list of"
+                " FragmentTransformationPerImage, "
+                "got %s." % (type(transformation_on_image),)
+            )
+
+        assert merge_transformations in ["mean"], (
+            "Expected merge_transformations to be in ['mean']",
+            "got %s",
+            (merge_transformations,),
+        )
+        self.merge_transformations = merge_transformations
+        self.output = None
+
+    def add(self, transformation_on_image: TransformationOnImage):
+        self.append(transformation_on_image)
+
+    def collect(self, individual_transformation_output):
+        if self.output is None:
+            self.output = individual_transformation_output
+
+        if self.merge_transformations == "mean":
+            self.output = self.output + individual_transformation_output
+
+    def aggregate(self):
+        if self.merge_transformations == "mean":
+            self.output = self.output / len(self)
 
 
 class InferenceStore:
@@ -93,10 +139,9 @@ class Transformer:
 
 
 class TransformationType:
-    def __init__(self, apply_per_image, inference_store: InferenceStore):
-        self.apply_per_image = apply_per_image
-        self.inference_store = inference_store
-        self.fragment_inference = None
+    def __init__(self, transformations: TransformationsPerRun):
+        self.transformations = transformations
+        self.transformation_output = None
         self.progress = Progress(
             **{
                 "Name": self.__class__.__name__,
@@ -111,25 +156,25 @@ class TransformationType:
         pass
 
     def run(self):
-        for iterator, fragment_transformation in enumerate(self.apply_per_image):
-            self.fragment_inference = np.zeros(fragment_transformation.inference_blue_print)
+        for iterator, transformation in enumerate(self.transformations):
+            self.transformation_output = np.zeros(transformation.blue_print)
 
             self.progress.Transformation_Count = "{}/{}".format(
-                iterator + 1, len(self.apply_per_image)
+                iterator + 1, len(self.transformations)
             )
             for transformer_iterator, transformer in enumerate(
-                fragment_transformation.collection
+                transformation.collection
             ):
-                self.progress.Transformer = "{}".format(fragment_transformation.name)
+                self.progress.Transformer = "{}".format(transformation.name)
                 self.progress.Fragment_Transformer_Progress = "{}/{}".format(
-                    transformer_iterator + 1, len(fragment_transformation.collection)
+                    transformer_iterator + 1, len(transformation.collection)
                 )
 
                 Printer.print(self.progress.__dict__)
 
                 yield transformer
-            self.inference_store.collect(self.fragment_inference)
-        self.inference_store.aggregate()
+            self.transformations.collect(self.transformation_output)
+        self.transformations.aggregate()
 
     def forward(self, transformer: Transformer, image: np.ndarray):
         raise NotImplementedError
@@ -142,14 +187,13 @@ class TransformationType:
 
     @staticmethod
     def generate_transformers(
-        image_dimension: tuple, transformers: list, inference_blue_print: tuple
+        image_dimension: tuple, transformers: list, blue_print: tuple
     ):
         assert len(image_dimension) == 4, (
             "Expected image to have shape (batch, height, width, [channels]), "
             "got shape %s." % (image_dimension,)
         )
-
-        apply_per_image = list()
+        transformations = TransformationsPerRun()
         for individual_transformer in transformers:
             assert list(individual_transformer.keys()) == [
                 "name",
@@ -183,18 +227,21 @@ class TransformationType:
                 apply_per_fragment.append(
                     Transformer(transformer=transformer, fragment=fragment)
                 )
-            apply_per_image.append(
-                FragmentTransformerCollect(
-                    name=transformer_name, collection=apply_per_fragment,
-                    inference_blue_print=inference_blue_print
+
+            transformations.add(
+                transformation_on_image=TransformationOnImage(
+                    name=transformer_name,
+                    collection=apply_per_fragment,
+                    blue_print=blue_print,
                 )
             )
-        return apply_per_image
+
+        return transformations
 
 
 class Segmentation(TransformationType):
-    def __init__(self, apply_per_image, inference_store: InferenceStore):
-        super().__init__(apply_per_image, inference_store)
+    def __init__(self, transformations: TransformationsPerRun):
+        super().__init__(transformations)
 
     def forward(self, transformer: Transformer, image: np.ndarray):
         assert image.ndim == 4, (
@@ -227,19 +274,18 @@ class Segmentation(TransformationType):
             "Expected image to have shape (batch ,height, width, [channels]), "
             "got shape %s." % (reversed_data.shape,)
         )
-        self.fragment_inference = transformer.fragment.transfer_fragment(
-            transfer_from=reversed_data, transfer_to=self.fragment_inference
+        self.transformation_output = transformer.fragment.transfer_fragment(
+            transfer_from=reversed_data, transfer_to=self.transformation_output
         )
 
     @classmethod
     def populate(cls, image_dimension: tuple, transformers: list, **kwargs):
-        inference_blue_print = kwargs["inference_blue_print"]
-        apply_per_image = cls.generate_transformers(
-            image_dimension, transformers, inference_blue_print
+        blue_print = kwargs["blue_print"]
+        transformations = cls.generate_transformers(
+            image_dimension, transformers, blue_print
         )
-        inference_store = InferenceStore(count=len(apply_per_image), merge_type="mean")
 
-        return cls(apply_per_image, inference_store)
+        return cls(transformations)
 
     @classmethod
     def populate_binary(cls, image_dimension: tuple, transformers: list):
@@ -250,9 +296,7 @@ class Segmentation(TransformationType):
 
         batch, h, w, _ = image_dimension
 
-        return cls.populate(
-            image_dimension, transformers, inference_blue_print=(batch, h, w, 1)
-        )
+        return cls.populate(image_dimension, transformers, blue_print=(batch, h, w, 1))
 
     @classmethod
     def populate_color(cls, image_dimension: tuple, transformers: list):
@@ -262,9 +306,7 @@ class Segmentation(TransformationType):
         )
 
         batch, h, w, _ = image_dimension
-        return cls.populate(
-            image_dimension, transformers, inference_blue_print=(batch, h, w, 3)
-        )
+        return cls.populate(image_dimension, transformers, blue_print=(batch, h, w, 3))
 
 
 def look_up(
