@@ -89,8 +89,9 @@ class TransformationsPerRun(list):
         if self.output is None:
             self.output = individual_transformation_output
 
-        if self.merge_transformations == "mean":
-            self.output = self.output + individual_transformation_output
+        else:
+            if self.merge_transformations == "mean":
+                self.output = self.output + individual_transformation_output
 
     def aggregate(self):
         if self.merge_transformations == "mean":
