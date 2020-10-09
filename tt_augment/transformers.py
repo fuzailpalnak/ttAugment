@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from tt_augment import tt_custom
 
-from fragment.fragment import ImageFragment
+from image_fragment.fragment import ImageFragment
 
 try:
     from collections.abc import Iterable
