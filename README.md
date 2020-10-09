@@ -8,7 +8,7 @@ final output
 
 ## Installation
 
-    pip install git+https://github.com/cypherics/ttAugment.git#egg=ttAugment
+    pip install ttAugment
 
 
 ## Supported Augmentation
