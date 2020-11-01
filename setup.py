@@ -11,7 +11,7 @@ install_requires = [
 
 setup(
     name="ttAugment",
-    version="0.3.3",
+    version="0.3.4",
     author="Fuzail Palnak",
     author_email="fuzailpalnak@gmail.com",
     description="Test Time Augmentations",
@@ -20,7 +20,7 @@ setup(
     packages=find_packages(),
     python_requires="~=3.6",
     install_requires=install_requires,
-    keywords="Deep Learning Inference PyTorch Augmentations TensorFlow",
+    keywords=["Deep Learning Inference", "PyTorch", "Augmentations","TensorFlow"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
