@@ -56,7 +56,7 @@ for inference and apply transformation over it
             },
             
             {
-            "name": "ScaleCrop",
+            "name": "CropScale",
             "transform_dimension": (2, 800, 800, 3),
             "network_dimension": (2, 1000, 1000, 3)
             }

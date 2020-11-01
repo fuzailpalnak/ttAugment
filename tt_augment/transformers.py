@@ -12,7 +12,7 @@ import numpy as np
 
 from tt_augment.tt_custom import custom, TTCustom
 
-from sys import stdout
+from py_oneliner import one_liner
 
 
 @dataclass
@@ -20,34 +20,6 @@ class TransformationOnImage:
     name: str
     collection: list
     blue_print: tuple
-
-
-class Progress:
-    def __init__(self, **entries):
-        self.__dict__.update(entries)
-
-
-class Printer:
-    @staticmethod
-    def print(data):
-        if type(data) == dict:
-            data = Printer.dict_to_string(data)
-        stdout.write("\r\033[1;37m>>\x1b[K" + data.__str__())
-        stdout.flush()
-
-    @staticmethod
-    def print_new_line(data):
-        stdout.write("\n")
-        stdout.write("\r\033[1;37m>>\x1b[K" + data.__str__())
-        stdout.flush()
-
-    @staticmethod
-    def dict_to_string(input_dict, separator=", "):
-        combined_list = list()
-        for key, value in input_dict.items():
-            individual = "{} : {}".format(key, value)
-            combined_list.append(individual)
-        return separator.join(combined_list)
 
 
 class TransformationsPerRun(list):
@@ -143,14 +115,6 @@ class TransformationType:
     def __init__(self, transformations: TransformationsPerRun):
         self.transformations = transformations
         self.transformation_output = None
-        self.progress = Progress(
-            **{
-                "Name": self.__class__.__name__,
-                "Transformation_Count": "None",
-                "Transformer": "None",
-                "Fragment_Transformer_Progress": "None",
-            }
-        )
 
     @classmethod
     def populate(cls, image_dimension: tuple, transformers: list, **kwargs):
@@ -160,18 +124,37 @@ class TransformationType:
         for iterator, transformation in enumerate(self.transformations):
             self.transformation_output = np.zeros(transformation.blue_print)
 
-            self.progress.Transformation_Count = "{}/{}".format(
-                iterator + 1, len(self.transformations)
+            one_liner.one_line(
+                tag="Name",
+                tag_data=f"{self.__class__.__name__}",
+                tag_color="cyan",
+                tag_data_color="yellow",
+                to_reset_data=True,
             )
+
+            one_liner.one_line(
+                tag="Count",
+                tag_data=f"{iterator+1}/{len(self.transformations)}",
+                tag_color="cyan",
+                tag_data_color="yellow",
+            )
+
             for transformer_iterator, transformer in enumerate(
                 transformation.collection
             ):
-                self.progress.Transformer = "{}".format(transformation.name)
-                self.progress.Fragment_Transformer_Progress = "{}/{}".format(
-                    transformer_iterator + 1, len(transformation.collection)
+                one_liner.one_line(
+                    tag="Transformer",
+                    tag_data=f"{transformation.name}",
+                    tag_color="cyan",
+                    tag_data_color="yellow",
                 )
 
-                Printer.print(self.progress.__dict__)
+                one_liner.one_line(
+                    tag="Fragment_Transformer_Progress",
+                    tag_data=f"{transformer_iterator+1}/{len(transformation.collection)}",
+                    tag_color="cyan",
+                    tag_data_color="yellow",
+                )
 
                 yield transformer
             self.transformations.collect(self.transformation_output)
@@ -217,7 +200,7 @@ class TransformationType:
                 transformer_name,
                 transform_dimension,
                 network_dimension,
-                **transformer_param
+                **transformer_param,
             )
             if transformer.transform_dimension > image_dimension:
                 raise ValueError(
@@ -320,7 +303,7 @@ def look_up(
         custom_aug = getattr(custom, transformer_name)(
             transform_dimension=transform_dimension,
             network_dimension=network_dimension,
-            **transformer_param
+            **transformer_param,
         )
         return custom_aug
     elif hasattr(tt_custom, transformer_name):
