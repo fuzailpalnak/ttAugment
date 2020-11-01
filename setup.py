@@ -6,6 +6,7 @@ install_requires = [
     "imgaug == 0.4.0",
     "numpy == 1.19.1",
     "image-fragment==0.2.2",
+    "py-oneliner == 0.0.1"
 ]
 
 setup(
