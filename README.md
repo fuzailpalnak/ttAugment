@@ -2,6 +2,7 @@
 ![GitHub](https://img.shields.io/github/license/cypherics/TTAugment)
 ![Python](https://img.shields.io/badge/python-v3.6+-blue.svg)
 ![Contributions welcome](https://img.shields.io/badge/contributions-welcome-orange.svg)
+![Downloads](https://pepy.tech/badge/ttaugment)
 
 Perform Augmentation during Inference and aggregate the results of all the applied augmentation to create a
 final output
