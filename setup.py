@@ -6,7 +6,7 @@ install_requires = [
     "imgaug == 0.4.0",
     "numpy == 1.19.1",
     "image-fragment==0.2.2",
-    "py-oneliner == 0.0.1"
+    "py-oneliner == 0.0.1",
 ]
 
 setup(
@@ -20,7 +20,7 @@ setup(
     packages=find_packages(),
     python_requires="~=3.6",
     install_requires=install_requires,
-    keywords=["Deep Learning Inference", "PyTorch", "Augmentations","TensorFlow"],
+    keywords=["Deep Learning Inference", "PyTorch", "Augmentations", "TensorFlow"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

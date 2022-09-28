@@ -29,13 +29,13 @@ class TTCustom:
         fwd=None,
         segmentation_reverse=None,
         classification_reverse=None,
-        network_dimension=None,
+        inference_dimension=None,
         transform_dimension=None,
     ):
 
-        assert len(network_dimension) == 4, (
+        assert len(inference_dimension) == 4, (
             "Expected image to have shape (batch, height, height, [channels]), "
-            "got shape %s." % (network_dimension,)
+            "got shape %s." % (inference_dimension,)
         )
         assert len(transform_dimension) == 4, (
             "Expected image to have shape (batch, height, height, [channels]), "
@@ -54,16 +54,18 @@ class TTCustom:
             ), "Expected to have fwd of type [meta.Augmenter], " "but received %s." % (
                 type(segmentation_reverse),
             )
-        if network_dimension < transform_dimension:
-            raise ValueError("Network Dimension Can't Be Less Than Transform Dimension")
+        if inference_dimension < transform_dimension:
+            raise ValueError(
+                "Inference Dimension Can't Be Less Than Transform Dimension"
+            )
         self.transform_dimension = transform_dimension
-        self.network_dimension = network_dimension
+        self.inference_dimension = inference_dimension
 
         self._fwd = fwd
 
         if segmentation_reverse is None:
             self._segmentation_reverse = NoSegAug(
-                self.network_dimension, self.transform_dimension
+                self.inference_dimension, self.transform_dimension
             )
         else:
             self._segmentation_reverse = segmentation_reverse
@@ -99,20 +101,21 @@ class TTCustom:
         return self._classification_reverse
 
     def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        return [self.inference_dimension, self.transform_dimension]
 
 
 class Mirror(TTCustom):
     """
-    Crop an image to transform_dimension and mirror the left pixel to match the size of network_dimension
+    Crop an image to transform_dimension and mirror the left pixel to match the size of inference_dimension
     """
 
-    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
         super().__init__(
-            network_dimension=network_dimension, transform_dimension=transform_dimension
+            inference_dimension=inference_dimension,
+            transform_dimension=transform_dimension,
         )
-        self._fwd = MirrorFWD(self.network_dimension, self.transform_dimension)
-        self._seg = MirrorBKD(self.network_dimension, self.transform_dimension)
+        self._fwd = MirrorFWD(self.inference_dimension, self.transform_dimension)
+        self._seg = MirrorBKD(self.inference_dimension, self.transform_dimension)
         self._classification = None
 
     @property
@@ -130,17 +133,18 @@ class Mirror(TTCustom):
 
 class CropScale(TTCustom):
     """
-    Crop an image to transform_dimension and rescale the image to match the size of network_dimension
+    Crop an image to transform_dimension and rescale the image to match the size of inference_dimension
     """
 
-    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
         super().__init__(
-            network_dimension=network_dimension, transform_dimension=transform_dimension
+            inference_dimension=inference_dimension,
+            transform_dimension=transform_dimension,
         )
-        if transform_dimension >= network_dimension:
+        if transform_dimension >= inference_dimension:
             raise ValueError("Can't Scale array with same Dimension")
-        self._fwd = ScaleFWD(self.network_dimension, self.transform_dimension)
-        self._seg = ScaleBKD(self.network_dimension, self.transform_dimension)
+        self._fwd = ScaleFWD(self.inference_dimension, self.transform_dimension)
+        self._seg = ScaleBKD(self.inference_dimension, self.transform_dimension)
         self._classification = None
 
     @property
@@ -157,20 +161,21 @@ class CropScale(TTCustom):
 
 
 class NoAugment(TTCustom):
-    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
-        assert network_dimension == transform_dimension, (
+    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
+        assert inference_dimension == transform_dimension, (
             "While Using NoAugment Transformation ",
-            "Expected [network_dimension] and [transform_dimension] to be equal",
+            "Expected [inference_dimension] and [transform_dimension] to be equal",
             "got %s and %s",
-            (transform_dimension, network_dimension),
+            (transform_dimension, inference_dimension),
         )
         super().__init__(
-            network_dimension=network_dimension, transform_dimension=transform_dimension
+            inference_dimension=inference_dimension,
+            transform_dimension=transform_dimension,
         )
-        if network_dimension != transform_dimension:
+        if inference_dimension != transform_dimension:
             raise ValueError("Dimension Mis Match")
-        self._fwd = NoSegAug(self.network_dimension, self.transform_dimension)
-        self._seg = NoSegAug(self.network_dimension, self.transform_dimension)
+        self._fwd = NoSegAug(self.inference_dimension, self.transform_dimension)
+        self._seg = NoSegAug(self.inference_dimension, self.transform_dimension)
         self._classification = None
 
     @property
@@ -191,9 +196,10 @@ class Crop(NoAugment):
     Crop an image to transform_dimension
     """
 
-    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
+    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
         super().__init__(
-            network_dimension=network_dimension, transform_dimension=transform_dimension
+            inference_dimension=inference_dimension,
+            transform_dimension=transform_dimension,
         )
 
 
@@ -203,16 +209,17 @@ class Rot(TTCustom):
     """
 
     def __init__(
-        self, transform_dimension: tuple, network_dimension: tuple, angle: int
+        self, transform_dimension: tuple, inference_dimension: tuple, angle: int
     ):
-        assert network_dimension == transform_dimension, (
+        assert inference_dimension == transform_dimension, (
             "While Using Geometric Transformation ",
-            "Expected [network_dimension] and [transform_dimension] to be equal",
+            "Expected [inference_dimension] and [transform_dimension] to be equal",
             "got %s and %s",
-            (transform_dimension, network_dimension),
+            (transform_dimension, inference_dimension),
         )
         super().__init__(
-            network_dimension=network_dimension, transform_dimension=transform_dimension
+            inference_dimension=inference_dimension,
+            transform_dimension=transform_dimension,
         )
 
         angle_axis = [0, 90, 180, 270]
@@ -244,15 +251,16 @@ class FlipHorizontal(TTCustom):
     Flip an image
     """
 
-    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
-        assert network_dimension == transform_dimension, (
+    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
+        assert inference_dimension == transform_dimension, (
             "While Using Geometric Transformation ",
-            "Expected [network_dimension] and [transform_dimension] to be equal",
+            "Expected [inference_dimension] and [transform_dimension] to be equal",
             "got %s and %s",
-            (transform_dimension, network_dimension),
+            (transform_dimension, inference_dimension),
         )
         super().__init__(
-            network_dimension=network_dimension, transform_dimension=transform_dimension
+            inference_dimension=inference_dimension,
+            transform_dimension=transform_dimension,
         )
 
         self._fwd = FlipLR(self.transform_dimension)
@@ -277,15 +285,16 @@ class FlipVertical(TTCustom):
     Flip an image
     """
 
-    def __init__(self, transform_dimension: tuple, network_dimension: tuple):
-        assert network_dimension == transform_dimension, (
+    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
+        assert inference_dimension == transform_dimension, (
             "While Using Geometric Transformation ",
-            "Expected [network_dimension] and [transform_dimension] to be equal",
+            "Expected [inference_dimension] and [transform_dimension] to be equal",
             "got %s and %s",
-            (transform_dimension, network_dimension),
+            (transform_dimension, inference_dimension),
         )
         super().__init__(
-            network_dimension=network_dimension, transform_dimension=transform_dimension
+            inference_dimension=inference_dimension,
+            transform_dimension=transform_dimension,
         )
         self._fwd = FlipUD(self.transform_dimension)
         self._seg = FlipUD(self.transform_dimension)

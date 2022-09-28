@@ -8,16 +8,16 @@ from imgaug.augmenters.flip import fliplr
 
 class MirrorFWD(meta.Augmenter):
     """
-    Mirror the pixel to get to network_dimension
+    Mirror the pixel to get to inference_dimension
     """
 
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+    def __init__(self, inference_dimension: tuple, transform_dimension: tuple):
         super().__init__()
-        self.network_dimension = network_dimension
+        self.inference_dimension = inference_dimension
         self.transform_dimension = transform_dimension
 
     def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        return [self.inference_dimension, self.transform_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
 
@@ -27,9 +27,9 @@ class MirrorFWD(meta.Augmenter):
         for i in sm.xrange(nb_images):
             img = images[i]
 
-            limit_w = (self.network_dimension[2] - self.transform_dimension[2]) // 2
+            limit_w = (self.inference_dimension[2] - self.transform_dimension[2]) // 2
 
-            limit_h = (self.network_dimension[1] - self.transform_dimension[1]) // 2
+            limit_h = (self.inference_dimension[1] - self.transform_dimension[1]) // 2
             img = cv2.copyMakeBorder(
                 img,
                 limit_h,
@@ -48,20 +48,23 @@ class MirrorBKD(meta.Augmenter):
     Remove the added pixel, Reverse of MirrorFWD
     """
 
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+    def __init__(self, inference_dimension: tuple, transform_dimension: tuple):
         super().__init__()
-        self.network_dimension = network_dimension
+        self.inference_dimension = inference_dimension
         self.transform_dimension = transform_dimension
 
     def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        return [self.inference_dimension, self.transform_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         images = batch.images
         nb_images = len(images)
         result = []
 
-        image_width, image_height = self.network_dimension[2], self.network_dimension[1]
+        image_width, image_height = (
+            self.inference_dimension[2],
+            self.inference_dimension[1],
+        )
 
         crop_width, crop_height = (
             self.transform_dimension[2],
@@ -94,7 +97,7 @@ class FlipLR(meta.Augmenter):
         self.transform_dimension = transform_dimension
 
     def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        return [self.inference_dimension, self.transform_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         for i, images in enumerate(batch.images):
@@ -112,7 +115,7 @@ class FlipUD(meta.Augmenter):
         self.transform_dimension = transform_dimension
 
     def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        return [self.inference_dimension, self.transform_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         for i, images in enumerate(batch.images):
@@ -139,7 +142,7 @@ class RotateFWD(meta.Augmenter):
         return batch
 
     def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        return [self.inference_dimension, self.transform_dimension]
 
 
 class RotateBKD(meta.Augmenter):
@@ -153,7 +156,7 @@ class RotateBKD(meta.Augmenter):
         self.angle_axis = angle_axis
 
     def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        return [self.inference_dimension, self.transform_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         result = list()
@@ -166,23 +169,23 @@ class RotateBKD(meta.Augmenter):
 
 class ScaleFWD(meta.Augmenter):
     """
-    Scale an image from transform_dimension to network_dimension
+    Scale an image from transform_dimension to inference_dimension
     """
 
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+    def __init__(self, inference_dimension: tuple, transform_dimension: tuple):
         super().__init__()
-        self.network_dimension = network_dimension
+        self.inference_dimension = inference_dimension
         self.transform_dimension = transform_dimension
 
     def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        return [self.inference_dimension, self.transform_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         result = list()
         for i, images in enumerate(batch.images):
             image_rs = imresize_single_image(
                 images,
-                (self.network_dimension[1], self.network_dimension[2]),
+                (self.inference_dimension[1], self.inference_dimension[2]),
                 interpolation="nearest",
             )
             result.append(image_rs)
@@ -192,16 +195,16 @@ class ScaleFWD(meta.Augmenter):
 
 class ScaleBKD(meta.Augmenter):
     """
-    Scale an image from network_dimension to transform_dimension
+    Scale an image from inference_dimension to transform_dimension
     """
 
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+    def __init__(self, inference_dimension: tuple, transform_dimension: tuple):
         super().__init__()
-        self.network_dimension = network_dimension
+        self.inference_dimension = inference_dimension
         self.transform_dimension = transform_dimension
 
     def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        return [self.inference_dimension, self.transform_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         result = list()
@@ -217,13 +220,13 @@ class ScaleBKD(meta.Augmenter):
 
 
 class NoSegAug(meta.Augmenter):
-    def __init__(self, network_dimension: tuple, transform_dimension: tuple):
+    def __init__(self, inference_dimension: tuple, transform_dimension: tuple):
         super().__init__()
-        self.network_dimension = network_dimension
+        self.inference_dimension = inference_dimension
         self.transform_dimension = transform_dimension
 
     def get_parameters(self):
-        return [self.network_dimension, self.transform_dimension]
+        return [self.inference_dimension, self.transform_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         return batch

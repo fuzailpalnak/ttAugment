@@ -1,3 +1,5 @@
+from typing import Dict, List
+
 from dataclasses import dataclass
 
 from tt_augment import tt_custom
@@ -19,7 +21,6 @@ from py_oneliner import one_liner
 class TransformationOnImage:
     name: str
     collection: list
-    blue_print: tuple
 
 
 class TransformationsPerRun(list):
@@ -70,24 +71,6 @@ class TransformationsPerRun(list):
             self.output = self.output / len(self)
 
 
-class InferenceStore:
-    def __init__(self, count: int, merge_type="mean"):
-        self.merge_type = merge_type
-        self.count = count
-        self.inference = None
-
-    def collect(self, fragment_inference):
-        if self.inference is None:
-            self.inference = fragment_inference
-
-        if self.merge_type == "mean":
-            self.inference = self.inference + fragment_inference
-
-    def aggregate(self):
-        if self.merge_type == "mean":
-            self.inference = self.inference / self.count
-
-
 class Transformer:
     def __init__(self, transformer, fragment):
 
@@ -111,18 +94,35 @@ class Transformer:
         return self.fragment.get_fragment_data(image)
 
 
-class TransformationType:
-    def __init__(self, transformations: TransformationsPerRun):
-        self.transformations = transformations
+class ImageTransformation:
+    def __init__(self, inference_dimension: tuple, transformation_to_apply: List[Dict]):
+
+        assert len(inference_dimension) == 4, (
+            "Expected image to have shape (batch, height, width, [channels]), "
+            "got shape %s." % (inference_dimension,)
+        )
+
+        self._inference_dimension = inference_dimension
+        self._transformation_to_apply = transformation_to_apply
+
+        self._image = None
+        self._cached_transformation = None
         self.transformation_output = None
 
-    @classmethod
-    def populate(cls, image_dimension: tuple, transformers: list, **kwargs):
-        pass
+    def _create_transformation_fragments(self, image_dimension: tuple):
+        if self._image != image_dimension:
+            transformations = self.generate_transformers(
+                image_dimension,
+                self._inference_dimension,
+                self._transformation_to_apply,
+            )
+            self._cached_transformation = transformations
 
-    def run(self):
-        for iterator, transformation in enumerate(self.transformations):
-            self.transformation_output = np.zeros(transformation.blue_print)
+    def run(self, image_dimension: tuple, output_dimension: tuple):
+        self._create_transformation_fragments(image_dimension)
+
+        for iterator, transformation in enumerate(self._cached_transformation):
+            self.transformation_output = np.zeros(output_dimension)
 
             one_liner.one_line(
                 tag="Name",
@@ -134,7 +134,7 @@ class TransformationType:
 
             one_liner.one_line(
                 tag="Count",
-                tag_data=f"{iterator+1}/{len(self.transformations)}",
+                tag_data=f"{iterator+1}/{len(self._cached_transformation)}",
                 tag_color="cyan",
                 tag_data_color="yellow",
             )
@@ -157,32 +157,42 @@ class TransformationType:
                 )
 
                 yield transformer
-            self.transformations.collect(self.transformation_output)
-        self.transformations.aggregate()
+            self._cached_transformation.collect(self.transformation_output)
+        self._cached_transformation.aggregate()
 
-    def forward(self, transformer: Transformer, image: np.ndarray):
+    def apply_transformation(self, transformer: Transformer, image: np.ndarray):
         raise NotImplementedError
 
-    def reverse(self, transformer: Transformer, inferred_data):
+    def restore_to_original_state(self, transformer: Transformer, inferred_data):
         raise NotImplementedError
 
-    def update(self, transformer: Transformer, reversed_data):
+    def append(self, transformer: Transformer, reversed_data):
         raise NotImplementedError
+
+    @property
+    def tta_output(self):
+        return self._cached_transformation.output
 
     @staticmethod
     def generate_transformers(
-        image_dimension: tuple, transformers: list, blue_print: tuple
+        image_dimension: tuple, inference_dimension: tuple, transformers: list
     ):
         assert len(image_dimension) == 4, (
             "Expected image to have shape (batch, height, width, [channels]), "
             "got shape %s." % (image_dimension,)
         )
+
+        assert len(inference_dimension) == 4, (
+            "Expected image to have shape (batch, height, width, [channels]), "
+            "got shape %s." % (inference_dimension,)
+        )
+
         transformations = TransformationsPerRun()
         for individual_transformer in transformers:
             transformer_name = individual_transformer["name"]
 
             if "transform_dimension" not in list(individual_transformer.keys()):
-                transform_dimension = image_dimension
+                transform_dimension = inference_dimension
             else:
                 transform_dimension = individual_transformer["transform_dimension"]
 
@@ -191,15 +201,10 @@ class TransformationType:
             else:
                 transformer_param = individual_transformer["param"]
 
-            if "network_dimension" not in list(individual_transformer.keys()):
-                network_dimension = transform_dimension
-            else:
-                network_dimension = individual_transformer["network_dimension"]
-
             transformer = look_up(
                 transformer_name,
                 transform_dimension,
-                network_dimension,
+                inference_dimension,
                 **transformer_param,
             )
             if transformer.transform_dimension > image_dimension:
@@ -217,20 +222,18 @@ class TransformationType:
 
             transformations.add(
                 transformation_on_image=TransformationOnImage(
-                    name=transformer_name,
-                    collection=apply_per_fragment,
-                    blue_print=blue_print,
+                    name=transformer_name, collection=apply_per_fragment
                 )
             )
 
         return transformations
 
 
-class Segmentation(TransformationType):
-    def __init__(self, transformations: TransformationsPerRun):
-        super().__init__(transformations)
+class Segmentation(ImageTransformation):
+    def __init__(self, inference_dimension: tuple, transformation_to_apply: List[Dict]):
+        super().__init__(inference_dimension, transformation_to_apply)
 
-    def forward(self, transformer: Transformer, image: np.ndarray):
+    def apply_transformation(self, transformer: Transformer, image: np.ndarray):
         assert image.ndim == 4, (
             "Expected image to have shape (batch ,height, width, [channels]), "
             "got shape %s." % (image.shape,)
@@ -244,7 +247,9 @@ class Segmentation(TransformationType):
             images=transformer.get_windowed_image(image=image)
         )
 
-    def reverse(self, transformer: Transformer, inferred_data: np.ndarray):
+    def restore_to_original_state(
+        self, transformer: Transformer, inferred_data: np.ndarray
+    ):
         assert inferred_data.ndim == 4, (
             "Expected image to have shape (batch ,height, width, [channels]), "
             "got shape %s." % (inferred_data.shape,)
@@ -256,7 +261,7 @@ class Segmentation(TransformationType):
 
         return transformer.transformer.segmentation_reverse(images=inferred_data)
 
-    def update(self, transformer: Transformer, reversed_data: np.ndarray):
+    def append(self, transformer: Transformer, reversed_data: np.ndarray):
         assert reversed_data.ndim == 4, (
             "Expected image to have shape (batch ,height, width, [channels]), "
             "got shape %s." % (reversed_data.shape,)
@@ -265,58 +270,28 @@ class Segmentation(TransformationType):
             transfer_from=reversed_data, transfer_to=self.transformation_output
         )
 
-    @classmethod
-    def populate(cls, image_dimension: tuple, transformers: list, **kwargs):
-        blue_print = kwargs["blue_print"]
-        transformations = cls.generate_transformers(
-            image_dimension, transformers, blue_print
-        )
-
-        return cls(transformations)
-
-    @classmethod
-    def populate_binary(cls, image_dimension: tuple, transformers: list):
-        assert len(image_dimension) == 4, (
-            "Expected image to have shape (batch, height, width, [channels]), "
-            "got shape %s." % (image_dimension,)
-        )
-
-        batch, h, w, _ = image_dimension
-
-        return cls.populate(image_dimension, transformers, blue_print=(batch, h, w, 1))
-
-    @classmethod
-    def populate_color(cls, image_dimension: tuple, transformers: list):
-        assert len(image_dimension) == 4, (
-            "Expected image to have shape (batch, height, width, [channels]), "
-            "got shape %s." % (image_dimension,)
-        )
-
-        batch, h, w, _ = image_dimension
-        return cls.populate(image_dimension, transformers, blue_print=(batch, h, w, 3))
-
 
 def look_up(
-    transformer_name, transform_dimension, network_dimension, **transformer_param
+    transformer_name, transform_dimension, inference_dimension, **transformer_param
 ):
     if hasattr(custom, transformer_name):
         custom_aug = getattr(custom, transformer_name)(
             transform_dimension=transform_dimension,
-            network_dimension=network_dimension,
+            inference_dimension=inference_dimension,
             **transformer_param,
         )
         return custom_aug
     elif hasattr(tt_custom, transformer_name):
-        assert network_dimension == transform_dimension, (
+        assert inference_dimension == transform_dimension, (
             "While Using External Color Augmentation ",
-            "Expected [network_dimension] and [transform_dimension] to be equal",
+            "Expected [inference_dimension] and [transform_dimension] to be equal",
             "got %s and %s",
-            (transform_dimension, network_dimension),
+            (transform_dimension, inference_dimension),
         )
         custom_aug = getattr(tt_custom, transformer_name)(**transformer_param)
         return TTCustom(
             fwd=custom_aug,
-            network_dimension=transform_dimension,
+            inference_dimension=transform_dimension,
             transform_dimension=transform_dimension,
         )
     else:
