@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from tt_augment import tt_custom
 
 from image_fragment.fragment import ImageFragment
+from collections import defaultdict
 
 try:
     from collections.abc import Iterable
@@ -78,6 +79,16 @@ class Transformer:
         self._name = self.transformer.__class__.__name__
         self._fragment = fragment
 
+        self._output = None
+
+    @property
+    def output(self):
+        return self._output
+
+    @output.setter
+    def output(self, value):
+        self._output = value
+
     @property
     def fragment(self):
         return self._fragment
@@ -95,45 +106,38 @@ class Transformer:
 
 
 class ImageTransformation:
-    def __init__(self, inference_dimension: tuple, transformation_to_apply: List[Dict]):
-
-        assert len(inference_dimension) == 4, (
-            "Expected image to have shape (batch, height, width, [channels]), "
-            "got shape %s." % (inference_dimension,)
-        )
-
-        self._inference_dimension = inference_dimension
+    def __init__(self, transformation_to_apply: List[Dict]):
         self._transformation_to_apply = transformation_to_apply
+        self._fragment_data = defaultdict(list)
 
         self._image = None
         self._cached_transformation = None
+
         self.transformation_output = None
 
-    def _create_transformation_fragments(self, image_dimension: tuple):
+    def _create_transformation_fragments(
+        self, image_dimension: tuple, window_dimension: tuple
+    ):
         if self._image != image_dimension:
             transformations = self.generate_transformers(
                 image_dimension,
-                self._inference_dimension,
+                window_dimension,
                 self._transformation_to_apply,
             )
             self._cached_transformation = transformations
 
-    def run(self, image_dimension: tuple, output_dimension: tuple):
-        self._create_transformation_fragments(image_dimension)
+    def transformations_fragments(
+        self, image_dimension: tuple, window_dimension: tuple, output_dimension: tuple
+    ):
+        self._create_transformation_fragments(image_dimension, window_dimension)
 
         for iterator, transformation in enumerate(self._cached_transformation):
-            self.transformation_output = np.zeros(output_dimension)
-
-            one_liner.one_line(
-                tag="Name",
-                tag_data=f"{self.__class__.__name__}",
-                tag_color="cyan",
-                tag_data_color="yellow",
-                to_reset_data=True,
+            self.transformation_output = self._create_transformation_image(
+                dim=output_dimension
             )
 
             one_liner.one_line(
-                tag="Count",
+                tag="Transformations",
                 tag_data=f"{iterator+1}/{len(self._cached_transformation)}",
                 tag_color="cyan",
                 tag_data_color="yellow",
@@ -142,59 +146,56 @@ class ImageTransformation:
             for transformer_iterator, transformer in enumerate(
                 transformation.collection
             ):
-                one_liner.one_line(
-                    tag="Transformer",
-                    tag_data=f"{transformation.name}",
-                    tag_color="cyan",
-                    tag_data_color="yellow",
-                )
 
                 one_liner.one_line(
-                    tag="Fragment_Transformer_Progress",
+                    tag=f"{transformation.name}",
                     tag_data=f"{transformer_iterator+1}/{len(transformation.collection)}",
                     tag_color="cyan",
                     tag_data_color="yellow",
                 )
 
                 yield transformer
-            self._cached_transformation.collect(self.transformation_output)
-        self._cached_transformation.aggregate()
+
+            if self.transformation_output is not None:
+                self._cached_transformation.collect(self.transformation_output)
 
     def apply_transformation(self, transformer: Transformer, image: np.ndarray):
         raise NotImplementedError
 
-    def restore_to_original_state(self, transformer: Transformer, inferred_data):
+    def append(self, transformer: Transformer, inferred_data):
         raise NotImplementedError
 
-    def append(self, transformer: Transformer, reversed_data):
+    def _create_transformation_image(self, dim: tuple):
         raise NotImplementedError
 
-    @property
     def tta_output(self):
+        self._cached_transformation.aggregate()
+        self.transformation_output = None
+
         return self._cached_transformation.output
 
     @staticmethod
     def generate_transformers(
-        image_dimension: tuple, inference_dimension: tuple, transformers: list
+        image_dimension: tuple, window_dimension: tuple, transformers: list
     ):
         assert len(image_dimension) == 4, (
             "Expected image to have shape (batch, height, width, [channels]), "
             "got shape %s." % (image_dimension,)
         )
 
-        assert len(inference_dimension) == 4, (
+        assert len(window_dimension) == 4, (
             "Expected image to have shape (batch, height, width, [channels]), "
-            "got shape %s." % (inference_dimension,)
+            "got shape %s." % (window_dimension,)
         )
 
         transformations = TransformationsPerRun()
         for individual_transformer in transformers:
             transformer_name = individual_transformer["name"]
 
-            if "transform_dimension" not in list(individual_transformer.keys()):
-                transform_dimension = inference_dimension
+            if "crop_to_dimension" not in list(individual_transformer.keys()):
+                crop_to_dimension = window_dimension
             else:
-                transform_dimension = individual_transformer["transform_dimension"]
+                crop_to_dimension = individual_transformer["crop_to_dimension"]
 
             if "param" not in list(individual_transformer.keys()):
                 transformer_param = {}
@@ -203,16 +204,16 @@ class ImageTransformation:
 
             transformer = look_up(
                 transformer_name,
-                transform_dimension,
-                inference_dimension,
+                crop_to_dimension,
+                window_dimension,
                 **transformer_param,
             )
-            if transformer.transform_dimension > image_dimension:
+            if transformer.crop_to_dimension > image_dimension:
                 raise ValueError(
                     "Transformation Dimension Can't be bigger that Image Dimension"
                 )
             fragments = ImageFragment.image_fragment_4d(
-                fragment_size=transformer.transform_dimension, org_size=image_dimension
+                fragment_size=transformer.crop_to_dimension, org_size=image_dimension
             )
             apply_per_fragment = list()
             for fragment in fragments:
@@ -230,8 +231,8 @@ class ImageTransformation:
 
 
 class Segmentation(ImageTransformation):
-    def __init__(self, inference_dimension: tuple, transformation_to_apply: List[Dict]):
-        super().__init__(inference_dimension, transformation_to_apply)
+    def __init__(self, transformation_to_apply: List[Dict]):
+        super().__init__(transformation_to_apply)
 
     def apply_transformation(self, transformer: Transformer, image: np.ndarray):
         assert image.ndim == 4, (
@@ -247,9 +248,7 @@ class Segmentation(ImageTransformation):
             images=transformer.get_windowed_image(image=image)
         )
 
-    def restore_to_original_state(
-        self, transformer: Transformer, inferred_data: np.ndarray
-    ):
+    def append(self, transformer: Transformer, inferred_data: np.ndarray):
         assert inferred_data.ndim == 4, (
             "Expected image to have shape (batch ,height, width, [channels]), "
             "got shape %s." % (inferred_data.shape,)
@@ -259,40 +258,39 @@ class Segmentation(ImageTransformation):
             transformer, Transformer
         ), "Expected child to be Transformer, got types %s." % (str(type(transformer)))
 
-        return transformer.transformer.segmentation_reverse(images=inferred_data)
-
-    def append(self, transformer: Transformer, reversed_data: np.ndarray):
-        assert reversed_data.ndim == 4, (
-            "Expected image to have shape (batch ,height, width, [channels]), "
-            "got shape %s." % (reversed_data.shape,)
+        restored_image = transformer.transformer.segmentation_reverse(
+            images=inferred_data
         )
+        transformer.output = restored_image
+
         self.transformation_output = transformer.fragment.transfer_fragment(
-            transfer_from=reversed_data, transfer_to=self.transformation_output
+            transfer_from=restored_image, transfer_to=self.transformation_output
         )
 
+    def _create_transformation_image(self, dim: tuple):
+        return np.zeros(dim)
 
-def look_up(
-    transformer_name, transform_dimension, inference_dimension, **transformer_param
-):
+
+def look_up(transformer_name, crop_to_dimension, window_dimension, **transformer_param):
     if hasattr(custom, transformer_name):
         custom_aug = getattr(custom, transformer_name)(
-            transform_dimension=transform_dimension,
-            inference_dimension=inference_dimension,
+            crop_to_dimension=crop_to_dimension,
+            window_dimension=window_dimension,
             **transformer_param,
         )
         return custom_aug
     elif hasattr(tt_custom, transformer_name):
-        assert inference_dimension == transform_dimension, (
+        assert window_dimension == crop_to_dimension, (
             "While Using External Color Augmentation ",
-            "Expected [inference_dimension] and [transform_dimension] to be equal",
+            "Expected [window_dimension] and [crop_to_dimension] to be equal",
             "got %s and %s",
-            (transform_dimension, inference_dimension),
+            (crop_to_dimension, window_dimension),
         )
         custom_aug = getattr(tt_custom, transformer_name)(**transformer_param)
         return TTCustom(
             fwd=custom_aug,
-            inference_dimension=transform_dimension,
-            transform_dimension=transform_dimension,
+            window_dimension=crop_to_dimension,
+            crop_to_dimension=crop_to_dimension,
         )
     else:
         raise Exception("UnSupported Transformer %s." % (transformer_name,))

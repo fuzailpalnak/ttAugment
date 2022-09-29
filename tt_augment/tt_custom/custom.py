@@ -29,17 +29,17 @@ class TTCustom:
         fwd=None,
         segmentation_reverse=None,
         classification_reverse=None,
-        inference_dimension=None,
-        transform_dimension=None,
+        window_dimension=None,
+        crop_to_dimension=None,
     ):
 
-        assert len(inference_dimension) == 4, (
+        assert len(window_dimension) == 4, (
             "Expected image to have shape (batch, height, height, [channels]), "
-            "got shape %s." % (inference_dimension,)
+            "got shape %s." % (window_dimension,)
         )
-        assert len(transform_dimension) == 4, (
+        assert len(crop_to_dimension) == 4, (
             "Expected image to have shape (batch, height, height, [channels]), "
-            "got shape %s." % (transform_dimension,)
+            "got shape %s." % (crop_to_dimension,)
         )
 
         if fwd is not None:
@@ -54,18 +54,18 @@ class TTCustom:
             ), "Expected to have fwd of type [meta.Augmenter], " "but received %s." % (
                 type(segmentation_reverse),
             )
-        if inference_dimension < transform_dimension:
+        if window_dimension < crop_to_dimension:
             raise ValueError(
                 "Inference Dimension Can't Be Less Than Transform Dimension"
             )
-        self.transform_dimension = transform_dimension
-        self.inference_dimension = inference_dimension
+        self.crop_to_dimension = crop_to_dimension
+        self.window_dimension = window_dimension
 
         self._fwd = fwd
 
         if segmentation_reverse is None:
             self._segmentation_reverse = NoSegAug(
-                self.inference_dimension, self.transform_dimension
+                self.window_dimension, self.crop_to_dimension
             )
         else:
             self._segmentation_reverse = segmentation_reverse
@@ -101,21 +101,21 @@ class TTCustom:
         return self._classification_reverse
 
     def get_parameters(self):
-        return [self.inference_dimension, self.transform_dimension]
+        return [self.window_dimension, self.crop_to_dimension]
 
 
 class Mirror(TTCustom):
     """
-    Crop an image to transform_dimension and mirror the left pixel to match the size of inference_dimension
+    Crop an image to crop_to_dimension and mirror the left pixel to match the size of window_dimension
     """
 
-    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
+    def __init__(self, crop_to_dimension: tuple, window_dimension: tuple):
         super().__init__(
-            inference_dimension=inference_dimension,
-            transform_dimension=transform_dimension,
+            window_dimension=window_dimension,
+            crop_to_dimension=crop_to_dimension,
         )
-        self._fwd = MirrorFWD(self.inference_dimension, self.transform_dimension)
-        self._seg = MirrorBKD(self.inference_dimension, self.transform_dimension)
+        self._fwd = MirrorFWD(self.window_dimension, self.crop_to_dimension)
+        self._seg = MirrorBKD(self.window_dimension, self.crop_to_dimension)
         self._classification = None
 
     @property
@@ -133,18 +133,18 @@ class Mirror(TTCustom):
 
 class CropScale(TTCustom):
     """
-    Crop an image to transform_dimension and rescale the image to match the size of inference_dimension
+    Crop an image to crop_to_dimension and rescale the image to match the size of window_dimension
     """
 
-    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
+    def __init__(self, crop_to_dimension: tuple, window_dimension: tuple):
         super().__init__(
-            inference_dimension=inference_dimension,
-            transform_dimension=transform_dimension,
+            window_dimension=window_dimension,
+            crop_to_dimension=crop_to_dimension,
         )
-        if transform_dimension >= inference_dimension:
+        if crop_to_dimension >= window_dimension:
             raise ValueError("Can't Scale array with same Dimension")
-        self._fwd = ScaleFWD(self.inference_dimension, self.transform_dimension)
-        self._seg = ScaleBKD(self.inference_dimension, self.transform_dimension)
+        self._fwd = ScaleFWD(self.window_dimension, self.crop_to_dimension)
+        self._seg = ScaleBKD(self.window_dimension, self.crop_to_dimension)
         self._classification = None
 
     @property
@@ -161,21 +161,21 @@ class CropScale(TTCustom):
 
 
 class NoAugment(TTCustom):
-    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
-        assert inference_dimension == transform_dimension, (
+    def __init__(self, crop_to_dimension: tuple, window_dimension: tuple):
+        assert window_dimension == crop_to_dimension, (
             "While Using NoAugment Transformation ",
-            "Expected [inference_dimension] and [transform_dimension] to be equal",
+            "Expected [window_dimension] and [crop_to_dimension] to be equal",
             "got %s and %s",
-            (transform_dimension, inference_dimension),
+            (crop_to_dimension, window_dimension),
         )
         super().__init__(
-            inference_dimension=inference_dimension,
-            transform_dimension=transform_dimension,
+            window_dimension=window_dimension,
+            crop_to_dimension=crop_to_dimension,
         )
-        if inference_dimension != transform_dimension:
+        if window_dimension != crop_to_dimension:
             raise ValueError("Dimension Mis Match")
-        self._fwd = NoSegAug(self.inference_dimension, self.transform_dimension)
-        self._seg = NoSegAug(self.inference_dimension, self.transform_dimension)
+        self._fwd = NoSegAug(self.window_dimension, self.crop_to_dimension)
+        self._seg = NoSegAug(self.window_dimension, self.crop_to_dimension)
         self._classification = None
 
     @property
@@ -193,13 +193,13 @@ class NoAugment(TTCustom):
 
 class Crop(NoAugment):
     """
-    Crop an image to transform_dimension
+    Crop an image to crop_to_dimension
     """
 
-    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
+    def __init__(self, crop_to_dimension: tuple, window_dimension: tuple):
         super().__init__(
-            inference_dimension=inference_dimension,
-            transform_dimension=transform_dimension,
+            window_dimension=window_dimension,
+            crop_to_dimension=crop_to_dimension,
         )
 
 
@@ -208,18 +208,16 @@ class Rot(TTCustom):
     Rotate an image
     """
 
-    def __init__(
-        self, transform_dimension: tuple, inference_dimension: tuple, angle: int
-    ):
-        assert inference_dimension == transform_dimension, (
+    def __init__(self, crop_to_dimension: tuple, window_dimension: tuple, angle: int):
+        assert window_dimension == crop_to_dimension, (
             "While Using Geometric Transformation ",
-            "Expected [inference_dimension] and [transform_dimension] to be equal",
+            "Expected [window_dimension] and [crop_to_dimension] to be equal",
             "got %s and %s",
-            (transform_dimension, inference_dimension),
+            (crop_to_dimension, window_dimension),
         )
         super().__init__(
-            inference_dimension=inference_dimension,
-            transform_dimension=transform_dimension,
+            window_dimension=window_dimension,
+            crop_to_dimension=crop_to_dimension,
         )
 
         angle_axis = [0, 90, 180, 270]
@@ -229,8 +227,8 @@ class Rot(TTCustom):
             (angle,),
         )
 
-        self._fwd = RotateFWD(angle_axis.index(angle), self.transform_dimension)
-        self._seg = RotateBKD(angle_axis.index(angle), self.transform_dimension)
+        self._fwd = RotateFWD(angle_axis.index(angle), self.crop_to_dimension)
+        self._seg = RotateBKD(angle_axis.index(angle), self.crop_to_dimension)
         self._classification = None
 
     @property
@@ -251,20 +249,20 @@ class FlipHorizontal(TTCustom):
     Flip an image
     """
 
-    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
-        assert inference_dimension == transform_dimension, (
+    def __init__(self, crop_to_dimension: tuple, window_dimension: tuple):
+        assert window_dimension == crop_to_dimension, (
             "While Using Geometric Transformation ",
-            "Expected [inference_dimension] and [transform_dimension] to be equal",
+            "Expected [window_dimension] and [crop_to_dimension] to be equal",
             "got %s and %s",
-            (transform_dimension, inference_dimension),
+            (crop_to_dimension, window_dimension),
         )
         super().__init__(
-            inference_dimension=inference_dimension,
-            transform_dimension=transform_dimension,
+            window_dimension=window_dimension,
+            crop_to_dimension=crop_to_dimension,
         )
 
-        self._fwd = FlipLR(self.transform_dimension)
-        self._seg = FlipLR(self.transform_dimension)
+        self._fwd = FlipLR(self.crop_to_dimension)
+        self._seg = FlipLR(self.crop_to_dimension)
         self._classification = None
 
     @property
@@ -285,19 +283,19 @@ class FlipVertical(TTCustom):
     Flip an image
     """
 
-    def __init__(self, transform_dimension: tuple, inference_dimension: tuple):
-        assert inference_dimension == transform_dimension, (
+    def __init__(self, crop_to_dimension: tuple, window_dimension: tuple):
+        assert window_dimension == crop_to_dimension, (
             "While Using Geometric Transformation ",
-            "Expected [inference_dimension] and [transform_dimension] to be equal",
+            "Expected [window_dimension] and [crop_to_dimension] to be equal",
             "got %s and %s",
-            (transform_dimension, inference_dimension),
+            (crop_to_dimension, window_dimension),
         )
         super().__init__(
-            inference_dimension=inference_dimension,
-            transform_dimension=transform_dimension,
+            window_dimension=window_dimension,
+            crop_to_dimension=crop_to_dimension,
         )
-        self._fwd = FlipUD(self.transform_dimension)
-        self._seg = FlipUD(self.transform_dimension)
+        self._fwd = FlipUD(self.crop_to_dimension)
+        self._seg = FlipUD(self.crop_to_dimension)
         self._classification = None
 
     @property

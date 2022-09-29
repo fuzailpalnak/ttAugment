@@ -8,16 +8,16 @@ from imgaug.augmenters.flip import fliplr
 
 class MirrorFWD(meta.Augmenter):
     """
-    Mirror the pixel to get to inference_dimension
+    Mirror the pixel to get to window_dimension
     """
 
-    def __init__(self, inference_dimension: tuple, transform_dimension: tuple):
+    def __init__(self, window_dimension: tuple, crop_to_dimension: tuple):
         super().__init__()
-        self.inference_dimension = inference_dimension
-        self.transform_dimension = transform_dimension
+        self.window_dimension = window_dimension
+        self.crop_to_dimension = crop_to_dimension
 
     def get_parameters(self):
-        return [self.inference_dimension, self.transform_dimension]
+        return [self.window_dimension, self.crop_to_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
 
@@ -27,9 +27,9 @@ class MirrorFWD(meta.Augmenter):
         for i in sm.xrange(nb_images):
             img = images[i]
 
-            limit_w = (self.inference_dimension[2] - self.transform_dimension[2]) // 2
+            limit_w = (self.window_dimension[2] - self.crop_to_dimension[2]) // 2
 
-            limit_h = (self.inference_dimension[1] - self.transform_dimension[1]) // 2
+            limit_h = (self.window_dimension[1] - self.crop_to_dimension[1]) // 2
             img = cv2.copyMakeBorder(
                 img,
                 limit_h,
@@ -48,13 +48,13 @@ class MirrorBKD(meta.Augmenter):
     Remove the added pixel, Reverse of MirrorFWD
     """
 
-    def __init__(self, inference_dimension: tuple, transform_dimension: tuple):
+    def __init__(self, window_dimension: tuple, crop_to_dimension: tuple):
         super().__init__()
-        self.inference_dimension = inference_dimension
-        self.transform_dimension = transform_dimension
+        self.window_dimension = window_dimension
+        self.crop_to_dimension = crop_to_dimension
 
     def get_parameters(self):
-        return [self.inference_dimension, self.transform_dimension]
+        return [self.window_dimension, self.crop_to_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         images = batch.images
@@ -62,13 +62,13 @@ class MirrorBKD(meta.Augmenter):
         result = []
 
         image_width, image_height = (
-            self.inference_dimension[2],
-            self.inference_dimension[1],
+            self.window_dimension[2],
+            self.window_dimension[1],
         )
 
         crop_width, crop_height = (
-            self.transform_dimension[2],
-            self.transform_dimension[1],
+            self.crop_to_dimension[2],
+            self.crop_to_dimension[1],
         )
 
         for i in sm.xrange(nb_images):
@@ -92,12 +92,12 @@ class FlipLR(meta.Augmenter):
     FLip an image
     """
 
-    def __init__(self, transform_dimension: tuple):
+    def __init__(self, crop_to_dimension: tuple):
         super().__init__()
-        self.transform_dimension = transform_dimension
+        self.crop_to_dimension = crop_to_dimension
 
     def get_parameters(self):
-        return [self.inference_dimension, self.transform_dimension]
+        return [self.window_dimension, self.crop_to_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         for i, images in enumerate(batch.images):
@@ -110,12 +110,12 @@ class FlipUD(meta.Augmenter):
     Flip an image
     """
 
-    def __init__(self, transform_dimension: tuple):
+    def __init__(self, crop_to_dimension: tuple):
         super().__init__()
-        self.transform_dimension = transform_dimension
+        self.crop_to_dimension = crop_to_dimension
 
     def get_parameters(self):
-        return [self.inference_dimension, self.transform_dimension]
+        return [self.window_dimension, self.crop_to_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         for i, images in enumerate(batch.images):
@@ -128,9 +128,9 @@ class RotateFWD(meta.Augmenter):
     Rotate an image with angle
     """
 
-    def __init__(self, angle_axis: int, transform_dimension: tuple):
+    def __init__(self, angle_axis: int, crop_to_dimension: tuple):
         super().__init__()
-        self.transform_dimension = transform_dimension
+        self.crop_to_dimension = crop_to_dimension
         self.angle_axis = angle_axis
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
@@ -142,7 +142,7 @@ class RotateFWD(meta.Augmenter):
         return batch
 
     def get_parameters(self):
-        return [self.inference_dimension, self.transform_dimension]
+        return [self.window_dimension, self.crop_to_dimension]
 
 
 class RotateBKD(meta.Augmenter):
@@ -150,13 +150,13 @@ class RotateBKD(meta.Augmenter):
     Rotate an image with -angle, Reverse the Rotate transformation
     """
 
-    def __init__(self, angle_axis: int, transform_dimension: tuple):
+    def __init__(self, angle_axis: int, crop_to_dimension: tuple):
         super().__init__()
-        self.transform_dimension = transform_dimension
+        self.crop_to_dimension = crop_to_dimension
         self.angle_axis = angle_axis
 
     def get_parameters(self):
-        return [self.inference_dimension, self.transform_dimension]
+        return [self.window_dimension, self.crop_to_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         result = list()
@@ -169,23 +169,23 @@ class RotateBKD(meta.Augmenter):
 
 class ScaleFWD(meta.Augmenter):
     """
-    Scale an image from transform_dimension to inference_dimension
+    Scale an image from crop_to_dimension to window_dimension
     """
 
-    def __init__(self, inference_dimension: tuple, transform_dimension: tuple):
+    def __init__(self, window_dimension: tuple, crop_to_dimension: tuple):
         super().__init__()
-        self.inference_dimension = inference_dimension
-        self.transform_dimension = transform_dimension
+        self.window_dimension = window_dimension
+        self.crop_to_dimension = crop_to_dimension
 
     def get_parameters(self):
-        return [self.inference_dimension, self.transform_dimension]
+        return [self.window_dimension, self.crop_to_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         result = list()
         for i, images in enumerate(batch.images):
             image_rs = imresize_single_image(
                 images,
-                (self.inference_dimension[1], self.inference_dimension[2]),
+                (self.window_dimension[1], self.window_dimension[2]),
                 interpolation="nearest",
             )
             result.append(image_rs)
@@ -195,23 +195,23 @@ class ScaleFWD(meta.Augmenter):
 
 class ScaleBKD(meta.Augmenter):
     """
-    Scale an image from inference_dimension to transform_dimension
+    Scale an image from window_dimension to crop_to_dimension
     """
 
-    def __init__(self, inference_dimension: tuple, transform_dimension: tuple):
+    def __init__(self, window_dimension: tuple, crop_to_dimension: tuple):
         super().__init__()
-        self.inference_dimension = inference_dimension
-        self.transform_dimension = transform_dimension
+        self.window_dimension = window_dimension
+        self.crop_to_dimension = crop_to_dimension
 
     def get_parameters(self):
-        return [self.inference_dimension, self.transform_dimension]
+        return [self.window_dimension, self.crop_to_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         result = list()
         for i, images in enumerate(batch.images):
             image_rs = imresize_single_image(
                 images,
-                (self.transform_dimension[1], self.transform_dimension[2]),
+                (self.crop_to_dimension[1], self.crop_to_dimension[2]),
                 interpolation="nearest",
             )
             result.append(image_rs)
@@ -220,13 +220,13 @@ class ScaleBKD(meta.Augmenter):
 
 
 class NoSegAug(meta.Augmenter):
-    def __init__(self, inference_dimension: tuple, transform_dimension: tuple):
+    def __init__(self, window_dimension: tuple, crop_to_dimension: tuple):
         super().__init__()
-        self.inference_dimension = inference_dimension
-        self.transform_dimension = transform_dimension
+        self.window_dimension = window_dimension
+        self.crop_to_dimension = crop_to_dimension
 
     def get_parameters(self):
-        return [self.inference_dimension, self.transform_dimension]
+        return [self.window_dimension, self.crop_to_dimension]
 
     def _augment_batch_(self, batch, random_state, parents, hooks):
         return batch
