@@ -30,7 +30,7 @@ transformation provided by [imgaug](https://imgaug.readthedocs.io/en/latest/) al
 How to use when test image is much **larger** than what the model requires, Don't worry the library has it covered,
 it will generate fragments according to the specified dimension, so the inference can be performed while applying augmentation.
 
-- window_dimension: Break the image into smaller images of said size 
+- window_size: Break the image into smaller images of said size 
 - output_dimension: It must be greater the input image in order for the fragments to be restored back on the 
 image.
 
@@ -39,8 +39,8 @@ import numpy as np
 from tt_augment.augment import generate_seg_augmenters
 
 transformation_to_apply = [
-  {"name": "Mirror", "crop_to_dimension": (1, 256, 256, 3)},
-  {"name": "CropScale", "crop_to_dimension": (1, 256, 256, 3)},
+  {"name": "Mirror", "crop_to_dimension": (256, 256)},
+  {"name": "CropScale", "crop_to_dimension": (256, 256)},
 ]
 
 for i in range(0, 10):
@@ -50,7 +50,7 @@ for i in range(0, 10):
   # Load augmentation object for the image, this includes to break the image in smaller fragments.
   tta = generate_seg_augmenters(
     image=image,
-    window_dimension=(1, 384, 384, 3),
+    window_size=(384, 384),
     output_dimension=(1, 512, 512, 3),
     transformation_to_apply=transformation_to_apply,
   )

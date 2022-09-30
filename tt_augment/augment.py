@@ -168,6 +168,7 @@ def _generate_transformation_to_apply(
         "Expected image to have shape (batch, height, width, [channels]), "
         "got shape %s." % (output_dimension,)
     )
+    b, h, w, c = image_dimension
 
     for individual_transformer in transformation_to_apply:
         transformer_name = individual_transformer["name"]
@@ -175,7 +176,8 @@ def _generate_transformation_to_apply(
         if "crop_to_dimension" not in list(individual_transformer.keys()):
             crop_to_dimension = window_dimension
         else:
-            crop_to_dimension = individual_transformer["crop_to_dimension"]
+            crop_to_size = individual_transformer["crop_to_dimension"]
+            crop_to_dimension = (b, crop_to_size[0], crop_to_size[1], c)
 
         if "param" not in list(individual_transformer.keys()):
             transformer_param = {}
@@ -206,10 +208,18 @@ def _generate_transformation_to_apply(
 
 def generate_seg_augmenters(
     image: np.ndarray,
-    window_dimension: tuple,
+    window_size: tuple,
     output_dimension: tuple,
     transformation_to_apply: list,
 ):
+    assert len(image.shape) == 4, (
+        "Expected image to have shape (batch, height, width, [channels]), "
+        "got shape %s." % (image.shape,)
+    )
+
+    b, h, w, channels = image.shape
+    window_dimension = (b, window_size[0], window_size[1], channels)
+
     transformations = TransformationsPerRun()
     for transformer_name, transformer_fragments in _generate_transformation_to_apply(
         image_dimension=image.shape,
