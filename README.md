@@ -76,6 +76,9 @@ for i in range(0, 10):
 
   output = tta.tta_output()
 ```
+## Example Implementation
+
+[Library used for Predicting Building footprint](https://github.com/fuzailpalnak/building-footprint-segmentation/blob/main/examples/PredictionWithAugmentations.ipynb)
 
 
     
